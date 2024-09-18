@@ -1,0 +1,102 @@
+{
+    "/api/user/new": {
+      "url": "/api/user/new",
+      "method": "POST",
+      "description": "Регистрация нового аккаунта",
+      "to-server": {
+        "тело-запроса": {
+          "email": "user@example.com",
+          "password": "passworD123!"
+        }
+      },
+      "to-client-response": {
+        "тело-ответа-в-случае-удачи": {
+          "status": true,
+          "message": "Account has been created",
+          "account": {
+            "id": 1,
+            "email": "user@example.com",
+            "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+          }
+        },
+        "тело-ответа-в-случае-неудачи": {
+          "status": false,
+          "message": "Error description (e.g., Email address already in use)"
+        }
+      }
+    },
+    
+    "/api/user/login": {
+      "url": "/api/user/login",
+      "method": "POST",
+      "description": "Вход в аккаунт",
+      "to-server": {
+        "тело-запроса": {
+          "email": "user@example.com",
+          "password": "password123"
+        }
+      },
+      "to-client-response": {
+        "тело-ответа-в-случае-удачи": {
+          "status": true,
+          "message": "Logged In",
+          "account": {
+            "id": 1,
+            "email": "user@example.com",
+            "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+          }
+        },
+        "тело-ответа-в-случае-неудачи": {
+          "status": false,
+          "message": "Invalid login credentials. Please try again"
+        }
+      }
+    },
+  
+    "/api/user/set-tokens": {
+      "url": "/api/user/set-tokens",
+      "method": "POST",
+      "description": "Установка токенов для пользователя",
+      "to-server": {
+        "заголовок": {
+          "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        },
+        "тело-запроса": {
+          "api_key": "public_api_key_example",
+          "secret_key": "secret_key_example"
+        }
+      },
+      "to-client-response": {
+        "тело-ответа-в-случае-удачи": {
+          "status": true,
+          "message": "Tokens have been successfully installed"
+        },
+        "тело-ответа-в-случае-неудачи": {
+          "status": false,
+          "message": "Error description (e.g., Invalid request: SecretKey or APIKey is empty)"
+        }
+      }
+    },
+  
+    "/api/user/refresh": {
+      "url": "/api/user/refresh",
+      "method": "POST",
+      "description": "Обновление JWT токена",
+      "to-server": {
+        "заголовок": {
+          "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        }
+      },
+      "to-client-response": {
+        "тело-ответа-в-случае-удачи": {
+          "status": true,
+          "message": "Tokens have been successfully updated",
+          "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        },
+        "тело-ответа-в-случае-неудачи": {
+          "status": false,
+          "message": "Error description (e.g., Token has expired or is invalid)"
+        }
+      }
+    }
+  }
