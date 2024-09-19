@@ -5,8 +5,10 @@
     "description": "Регистрация нового аккаунта. После требуется подтверждение аккаунта через почту.",
     "to-server": {
       "тело-запроса": {
-        "email": "user@example.com",
-        "password": "passworD123!"
+        "account": {
+          "email": "user@example.com",
+          "password": "passworD123!"
+        }
       }
     },
     "to-client-response": {
@@ -30,8 +32,10 @@
     "description": "Вход в аккаунт",
     "to-server": {
       "тело-запроса": {
-        "email": "user@example.com",
-        "password": "password123"
+        "account": {
+          "email": "user@example.com",
+          "password": "password123"
+        }
       }
     },
     "to-client-response": {
@@ -194,7 +198,7 @@
       },
       "тело-запроса": {
         "email": "user@example.com",
-        "password":"passworD123!"
+        "password": "passworD123!"
       }
     },
     "to-client-response": {

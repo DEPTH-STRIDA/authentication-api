@@ -228,3 +228,33 @@ func UpdateAllFields(updatedAccount *Account) error {
 
 	return nil
 }
+
+// GetTokens Возвращает два токена. api key, secter key
+func GetTokens(userID uint) (apiKey string, SecretKey string, err error) {
+	// Получение аккаунта из БД по id
+	account := GetUser(userID)
+	if account == nil {
+		return "", "", fmt.Errorf("User not found")
+	}
+
+	return account.APIKey, account.SecretKey, nil
+}
+
+func SetTokens(userID uint, apiKey, secretKey string) error {
+	// Получение пользователя из БД по id
+	account := GetUser(userID)
+	if account == nil {
+		return fmt.Errorf("user not found")
+	}
+
+	// Установка в структуру новых токенов
+	account.SecretKey = secretKey
+	account.APIKey = apiKey
+
+	// Обновление всех полей по id в БД
+	err := UpdateAllFields(account)
+	if err != nil {
+		return err
+	}
+	return nil
+}
