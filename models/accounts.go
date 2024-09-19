@@ -117,11 +117,11 @@ func (account *Account) Create() map[string]interface{} {
 }
 
 // CreateJWTToken создает jwt токен для данных пользователя
-func (account *Account) CreateJWTToken() map[string]interface{} {
+func (account *Account) CreateJWTToken() (string, bool) {
 
 	// Проверка логина/пароля перед процессом создания
-	if resp, ok := account.Validate(); !ok {
-		return resp
+	if _, ok := account.Validate(); !ok {
+		return "", false
 	}
 
 	// Хеширование пароля стандартной библиотекой. Сложность хеширования по-умолчанию 10. Пароль предворительно переведн в массив байт.
@@ -142,21 +142,10 @@ func (account *Account) CreateJWTToken() map[string]interface{} {
 
 	//Создание токена из структуры "tj" с алгоритмом (HMAC-SHA256) для шифрования токена
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, tk)
-
 	// Подпись токена с помощью уникального ключа из .env
 	tokenString, _ := token.SignedString([]byte(os.Getenv("token_password")))
 
-	// Добавления токена в структуру пользователя
-	account.Token = tokenString
-
-	// Т.к. структура будет отправлена ответным HHTP, нужно удалить пароль из структуры. Кешированный пароль останится в БД.
-	account.Password = "" //delete password
-
-	response := u.Message(true, "Account has been created")
-	// Добавление пользователя в map'у
-	response["account"] = account
-
-	return response
+	return tokenString, true
 }
 
 // Login выполняет авторизацию пользователя
