@@ -142,7 +142,9 @@
     "description": "Начало сброса пароля, отправка кода на почту.",
     "to-server": {
       "тело-запроса": {
-        "email": "user@example.com"
+        "account": {
+          "email": "user@example.com"
+        }
       }
     },
     "to-client-response": {

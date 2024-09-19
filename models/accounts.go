@@ -4,6 +4,7 @@ package models
 import (
 	u "app/utils"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 // Структура, которая кодируется в Json и передается вместе с HTTP.
 type Token struct {
 	UserId uint
+	Email  string
 	jwt.StandardClaims
 }
 
@@ -46,6 +48,10 @@ func (account *Account) Validate() (map[string]interface{}, bool) {
 		return u.Message(false, msg), false
 	}
 
+	// if smtp.MailManager.IsConsist(account.Email) {
+	// 	return u.Message(false, "Invalid email format"), false
+	// }
+
 	// Создание пустой структуруы, чтобы gorm понял к какой таблице обращаться
 	temp := &Account{}
 
@@ -67,27 +73,44 @@ func (account *Account) Validate() (map[string]interface{}, bool) {
 
 // Create создает аккаунт в БД и возвращает map'у с пользователем и токеном.
 func (account *Account) Create() map[string]interface{} {
+	log.Printf("Начало создания аккаунта для email: %s", account.Email)
 
 	// Проверка логина/пароля перед процессом создания
 	if resp, ok := account.Validate(); !ok {
+		log.Printf("Ошибка валидации аккаунта: %v", resp)
 		return resp
 	}
+	log.Println("Валидация аккаунта прошла успешно")
 
 	// Хеширование пароля стандартной библиотекой. Сложность хеширования по-умолчанию 10. Пароль предворительно переведн в массив байт.
-	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(account.Password), bcrypt.DefaultCost)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(account.Password), bcrypt.DefaultCost)
+	if err != nil {
+		log.Printf("Ошибка хеширования пароля: %v", err)
+		return u.Message(false, "Failed to hash password")
+	}
+	log.Println("Пароль успешно захеширован")
+
 	// Установка пароля в поле структуры
 	account.Password = string(hashedPassword)
 
 	// Создание в БД аккаунта с таким паролем.
-	GetDB().Create(account)
+	result := GetDB().Create(account)
+	if result.Error != nil {
+		log.Printf("Ошибка создания аккаунта в БД: %v", result.Error)
+		return u.Message(false, "Failed to create account, database error")
+	}
+	log.Printf("Аккаунт успешно создан в БД с ID: %d", account.ID)
 
 	// Если ID аккаунту <=0, кидаем ошибку
 	if account.ID <= 0 {
+		log.Println("Ошибка: ID аккаунта <= 0")
 		return u.Message(false, "Failed to create account, connection error.")
 	}
 
 	// Создание временной метки истечения срока жизни токена ("истекает в")
 	expirationTime := time.Now().Add(15 * time.Minute)
+	log.Printf("Время истечения токена установлено на: %v", expirationTime)
+
 	// Структура токен
 	tk := &Token{
 		UserId: account.ID,
@@ -96,56 +119,93 @@ func (account *Account) Create() map[string]interface{} {
 			ExpiresAt: expirationTime.Unix(),
 		},
 	}
+	log.Printf("Создана структура токена: %+v", tk)
 
 	//Создание токена из структуры "tj" с алгоритмом (HMAC-SHA256) для шифрования токена
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, tk)
 
 	// Подпись токена с помощью уникального ключа из .env
-	tokenString, _ := token.SignedString([]byte(os.Getenv("token_password")))
+	tokenString, err := token.SignedString([]byte(os.Getenv("token_password")))
+	if err != nil {
+		log.Printf("Ошибка подписи токена: %v", err)
+		return u.Message(false, "Failed to generate token")
+	}
+	log.Println("Токен успешно создан и подписан")
 
 	// Добавления токена в структуру пользователя
 	account.Token = tokenString
 
 	// Т.к. структура будет отправлена ответным HHTP, нужно удалить пароль из структуры. Кешированный пароль останится в БД.
 	account.Password = "" //delete password
+	log.Println("Пароль удален из структуры аккаунта для отправки")
 
 	response := u.Message(true, "Account has been created")
 	// Добавление пользователя в map'у
 	response["account"] = account
+	log.Printf("Подготовлен ответ: %+v", response)
 
 	return response
 }
 
 // CreateJWTToken создает jwt токен для данных пользователя
 func (account *Account) CreateJWTToken() (string, bool) {
+	log.Printf("Начало CreateJWTToken для аккаунта: %+v", account)
 
 	// Проверка логина/пароля перед процессом создания
-	if _, ok := account.Validate(); !ok {
+	if resp, ok := account.Validate(); !ok {
+		log.Printf("Ошибка валидации аккаунта: %+v", resp)
+		return "", false
+	}
+	log.Println("Валидация аккаунта успешна")
+
+	// Структура токена
+	tk := &Token{
+		UserId:         account.ID,
+		Email:          account.Email,
+		StandardClaims: jwt.StandardClaims{},
+	}
+	log.Printf("Создана структура токена: %+v", tk)
+
+	// Создание токена из структуры "tk" с алгоритмом (HMAC-SHA256) для шифрования токена
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, tk)
+
+	// Подпись токена с помощью уникального ключа из .env
+	tokenPassword := os.Getenv("token_password")
+	if tokenPassword == "" {
+		log.Println("Ошибка: переменная окружения token_password не установлена")
 		return "", false
 	}
 
-	// Хеширование пароля стандартной библиотекой. Сложность хеширования по-умолчанию 10. Пароль предворительно переведн в массив байт.
-	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(account.Password), bcrypt.DefaultCost)
-	// Установка пароля в поле структуры
-	account.Password = string(hashedPassword)
-
-	// Создание временной метки истечения срока жизни токена ("истекает в")
-	expirationTime := time.Now().Add(15 * time.Minute)
-	// Структура токен
-	tk := &Token{
-		UserId: account.ID,
-		// Стандартный токен библиотеки JWT, но с временой меткой "Истекает в"
-		StandardClaims: jwt.StandardClaims{
-			ExpiresAt: expirationTime.Unix(),
-		},
+	tokenString, err := token.SignedString([]byte(tokenPassword))
+	if err != nil {
+		log.Printf("Ошибка подписи токена: %v", err)
+		return "", false
 	}
-
-	//Создание токена из структуры "tj" с алгоритмом (HMAC-SHA256) для шифрования токена
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, tk)
-	// Подпись токена с помощью уникального ключа из .env
-	tokenString, _ := token.SignedString([]byte(os.Getenv("token_password")))
+	log.Println("Токен успешно создан и подписан")
 
 	return tokenString, true
+}
+
+func ParseToken(tokenString string) (string, error) {
+	// Парсинг токена
+	token, err := jwt.ParseWithClaims(tokenString, &Token{}, func(token *jwt.Token) (interface{}, error) {
+		// Убедитесь, что алгоритм токена соответствует ожидаемому
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(os.Getenv("token_password")), nil
+	})
+
+	if err != nil {
+		return "", err
+	}
+
+	// Проверка валидности токена и извлечение claims
+	if claims, ok := token.Claims.(*Token); ok && token.Valid {
+		return claims.Email, nil
+	}
+
+	return "", fmt.Errorf("invalid token")
 }
 
 // Login выполняет авторизацию пользователя
@@ -200,6 +260,19 @@ func GetUser(u uint) *Account {
 
 	acc := &Account{}
 	GetDB().Table("accounts").Where("id = ?", u).First(acc)
+	if acc.Email == "" { //User not found!
+		return nil
+	}
+
+	acc.Password = ""
+	return acc
+}
+
+// GetUser возвращает пользователя из БД по почте
+func GetUserViaEmail(email string) *Account {
+
+	acc := &Account{}
+	GetDB().Table("accounts").Where("email = ?", email).First(acc)
 	if acc.Email == "" { //User not found!
 		return nil
 	}

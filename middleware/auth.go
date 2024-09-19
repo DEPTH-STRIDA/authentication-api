@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/dgrijalva/jwt-go"
 )
@@ -91,13 +90,6 @@ func JwtAuthentication(next http.Handler) http.Handler {
 			w.Header().Add("Content-Type", "application/json")
 			u.Respond(w, response)
 			return
-		}
-
-		timeUntilExpiration := time.Until(time.Unix(tk.ExpiresAt, 0))
-		log.Printf("Time until token expiration: %v", timeUntilExpiration)
-		if timeUntilExpiration < 5*time.Minute {
-			log.Println("Token is about to expire, adding X-Refresh-Token header")
-			w.Header().Add("X-Refresh-Token", "true")
 		}
 
 		log.Printf("Authenticated user ID: %d", tk.UserId)

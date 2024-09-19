@@ -3,8 +3,10 @@ package utils
 
 import (
 	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
-	"regexp"
+	"strings"
 	"unicode"
 )
 
@@ -22,25 +24,25 @@ func Respond(w http.ResponseWriter, data map[string]interface{}) {
 // ValidateEmail проверяет корректность адреса электронной почты
 func ValidateEmail(email string) (bool, string) {
 
-	// Регулярное выражение для проверки формата email
-	// ^                   - начало строки
-	// [a-z0-9._%+\-]+     - одна или более букв, цифр, точек, подчеркиваний, процентов, плюсов или дефисов
-	// @                   - символ @
-	// [a-z0-9.\-]+        - одна или более букв, цифр, точек или дефисов
-	// \.                  - точка
-	// [a-z]{2,4}          - от 2 до 4 букв (домен верхнего уровня)
-	// $                   - конец строки
-	emailRegex := regexp.MustCompile(`^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,4}$`)
+	// // Регулярное выражение для проверки формата email
+	// // ^                   - начало строки
+	// // [a-z0-9._%+\-]+     - одна или более букв, цифр, точек, подчеркиваний, процентов, плюсов или дефисов
+	// // @                   - символ @
+	// // [a-z0-9.\-]+        - одна или более букв, цифр, точек или дефисов
+	// // \.                  - точка
+	// // [a-z]{2,4}          - от 2 до 4 букв (домен верхнего уровня)
+	// // $                   - конец строки
+	// emailRegex := regexp.MustCompile(`^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,4}$`)
 
-	// Проверяем, соответствует ли email заданному регулярному выражению
-	if !emailRegex.MatchString(email) {
-		return false, "Invalid email format"
-	}
+	// // Проверяем, соответствует ли email заданному регулярному выражению
+	// if !emailRegex.MatchString(email) {
+	// 	return false, "Invalid email format"
+	// }
 
-	// Проверяем длину email (максимум 254 символа согласно RFC 5321)
-	if len(email) > 254 {
-		return false, "Email is too long"
-	}
+	// // Проверяем длину email (максимум 254 символа согласно RFC 5321)
+	// if len(email) > 254 {
+	// 	return false, "Email is too long"
+	// }
 
 	return true, ""
 }
@@ -80,4 +82,20 @@ func ValidatePassword(password string) (bool, string) {
 	}
 
 	return true, ""
+}
+
+func GetHeaderToken(r *http.Request) (string, error) {
+	tokenHeader := r.Header.Get("Authorization")
+
+	if tokenHeader == "" {
+		log.Println("Error: Missing authentication token")
+		return "", fmt.Errorf("отсутствует токен аутентификации")
+	}
+
+	splitted := strings.Split(tokenHeader, " ")
+	if len(splitted) != 2 {
+		return "", fmt.Errorf("неверный формат токена аутентификации")
+	}
+
+	return splitted[1], nil
 }

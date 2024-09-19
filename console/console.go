@@ -14,10 +14,10 @@ import (
 const baseURL = "http://localhost:8000"
 
 type ServerResponse struct {
-	Account Account `json:"account"`
-	Status  bool    `json:"status"`
-	Message string  `json:"message"`
-	Token   string  `json:"token,omitempty"`
+	Account interface{} `json:"account"`
+	Status  bool        `json:"status"`
+	Message string      `json:"message"`
+	Token   string      `json:"token,omitempty"`
 }
 
 type Account struct {
@@ -29,6 +29,11 @@ type Account struct {
 	Token     string `json:"token,omitempty"`
 }
 
+type BaseHttpRequest struct {
+	Account Account `json:"account"`
+	Key     string  `json:"key"`
+}
+
 var currentSession Account
 
 func StartUserInterface() {
@@ -37,11 +42,13 @@ func StartUserInterface() {
 	for {
 		fmt.Println("\nВыберите действие:")
 		fmt.Println("1. Регистрация нового аккаунта")
-		fmt.Println("2. Вход в аккаунт")
-		fmt.Println("3. Установить токены")
-		fmt.Println("4. Обновить JWT токен")
-		fmt.Println("5. Выход из аккаунта")
-		fmt.Println("6. Выход из программы")
+		fmt.Println("2. Подтверждение почты")
+		fmt.Println("3. Вход в аккаунт")
+		fmt.Println("4. Восстановление пароля")
+		fmt.Println("5. Установить токены")
+		fmt.Println("6. Обновить JWT токен")
+		fmt.Println("7. Выход из аккаунта")
+		fmt.Println("8. Выход из программы")
 
 		choice, _ := reader.ReadString('\n')
 		choice = strings.TrimSpace(choice)
@@ -50,14 +57,18 @@ func StartUserInterface() {
 		case "1":
 			registerAccount(reader)
 		case "2":
-			loginAccount(reader)
+			confirmEmail(reader)
 		case "3":
-			setTokens(reader)
+			loginAccount(reader)
 		case "4":
-			refreshToken()
+			resetPassword(reader)
 		case "5":
-			logOut()
+			setTokens(reader)
 		case "6":
+			refreshToken()
+		case "7":
+			logOut()
+		case "8":
 			fmt.Println("До свидания!")
 			return
 		default:
@@ -85,17 +96,56 @@ func registerAccount(reader *bufio.Reader) {
 		Password: password,
 	}
 
-	resp, err := sendRequest("POST", "/api/user/new", account)
+	baseHttpRequest := BaseHttpRequest{
+		Account: account,
+	}
+
+	resp, err := sendRequest("POST", "/api/user/new", baseHttpRequest)
 	if err != nil {
 		fmt.Println("Ошибка при регистрации:", err)
 		return
 	}
 
 	if resp.Status {
-		currentSession = resp.Account
-		fmt.Println("Аккаунт успешно создан и выполнен вход")
+		if token, ok := resp.Account.(string); ok {
+			currentSession.Token = token
+			currentSession.Email = email
+			fmt.Println("Аккаунт успешно создан. Проверьте почту для подтверждения.")
+		} else {
+			fmt.Println("Ошибка: неожиданный формат ответа от сервера")
+		}
 	} else {
 		fmt.Println("Ошибка при создании аккаунта:", resp.Message)
+	}
+}
+
+func confirmEmail(reader *bufio.Reader) {
+	if currentSession.Token == "" {
+		fmt.Println("Сначала зарегистрируйтесь или войдите в аккаунт")
+		return
+	}
+
+	fmt.Print("Введите код подтверждения: ")
+	code, _ := reader.ReadString('\n')
+	code = strings.TrimSpace(code)
+
+	baseHttpRequest := BaseHttpRequest{
+		Account: Account{
+			Token: currentSession.Token,
+		},
+		Key: code,
+	}
+
+	resp, err := sendRequest("POST", "/api/user/new/validate", baseHttpRequest)
+	if err != nil {
+		fmt.Println("Ошибка при подтверждении почты:", err)
+		return
+	}
+
+	if resp.Status {
+		fmt.Println("Почта успешно подтверждена")
+	} else {
+		fmt.Println("Ошибка при подтверждении почты:", resp.Message)
 	}
 }
 
@@ -113,22 +163,113 @@ func loginAccount(reader *bufio.Reader) {
 	password, _ := reader.ReadString('\n')
 	password = strings.TrimSpace(password)
 
-	account := Account{
-		Email:    email,
-		Password: password,
+	requestData := struct {
+		Account struct {
+			Email    string `json:"email"`
+			Password string `json:"password"`
+		} `json:"account"`
+	}{
+		Account: struct {
+			Email    string `json:"email"`
+			Password string `json:"password"`
+		}{
+			Email:    email,
+			Password: password,
+		},
 	}
 
-	resp, err := sendRequest("POST", "/api/user/login", account)
+	resp, err := sendRequest("POST", "/api/user/login", requestData)
 	if err != nil {
 		fmt.Println("Ошибка при входе:", err)
 		return
 	}
 
 	if resp.Status {
-		currentSession = resp.Account
-		fmt.Println("Вход выполнен успешно")
+		if accountData, ok := resp.Account.(map[string]interface{}); ok {
+			currentSession.Token = accountData["token"].(string)
+			currentSession.Email = email
+			fmt.Println("Вход выполнен успешно")
+		} else {
+			fmt.Println("Ошибка: неожиданный формат ответа от сервера")
+		}
 	} else {
 		fmt.Println("Ошибка при входе:", resp.Message)
+	}
+}
+func resetPassword(reader *bufio.Reader) {
+	fmt.Print("Введите email: ")
+	email, _ := reader.ReadString('\n')
+	email = strings.TrimSpace(email)
+
+	baseHttpRequest := BaseHttpRequest{
+		Account: Account{
+			Email: email,
+		},
+	}
+
+	resp, err := sendRequest("POST", "/api/user/password/reset", baseHttpRequest)
+	if err != nil {
+		fmt.Println("Ошибка при запросе сброса пароля:", err)
+		return
+	}
+
+	if resp.Status {
+		fmt.Println("Код для сброса пароля отправлен на почту")
+		validatePasswordReset(reader, email)
+	} else {
+		fmt.Println("Ошибка при запросе сброса пароля:", resp.Message)
+	}
+}
+
+func validatePasswordReset(reader *bufio.Reader, email string) {
+	fmt.Print("Введите код подтверждения: ")
+	code, _ := reader.ReadString('\n')
+	code = strings.TrimSpace(code)
+
+	baseHttpRequest := BaseHttpRequest{
+		Account: Account{
+			Email: email,
+		},
+		Key: code,
+	}
+
+	resp, err := sendRequest("POST", "/api/user/password/validate", baseHttpRequest)
+	if err != nil {
+		fmt.Println("Ошибка при подтверждении кода:", err)
+		return
+	}
+
+	if resp.Status {
+		fmt.Println("Код подтвержден. Установите новый пароль.")
+		setNewPassword(reader, email, code)
+	} else {
+		fmt.Println("Ошибка при подтверждении кода:", resp.Message)
+	}
+}
+
+func setNewPassword(reader *bufio.Reader, email, code string) {
+	fmt.Print("Введите новый пароль: ")
+	password, _ := reader.ReadString('\n')
+	password = strings.TrimSpace(password)
+
+	baseHttpRequest := BaseHttpRequest{
+		Account: Account{
+			Email:    email,
+			Password: password,
+		},
+		Key: code,
+	}
+
+	resp, err := sendRequest("POST", "/api/user/password/set", baseHttpRequest)
+	if err != nil {
+		fmt.Println("Ошибка при установке нового пароля:", err)
+		return
+	}
+
+	if resp.Status {
+		fmt.Println("Новый пароль успешно установлен")
+	} else {
+		fmt.Println("Ошибка при установке нового пароля:", resp.Message)
 	}
 }
 
@@ -146,17 +287,15 @@ func setTokens(reader *bufio.Reader) {
 	secretKey, _ := reader.ReadString('\n')
 	secretKey = strings.TrimSpace(secretKey)
 
-	requestData := struct {
-		APIKey    string `json:"api_key"`
-		SecretKey string `json:"secret_key"`
-	}{
-		APIKey:    apiKey,
-		SecretKey: secretKey,
+	baseHttpRequest := BaseHttpRequest{
+		Account: Account{
+			APIKey:    apiKey,
+			SecretKey: secretKey,
+			Token:     currentSession.Token,
+		},
 	}
 
-	fmt.Printf("Отправляемые данные: %+v\n", requestData)
-
-	resp, err := sendRequest("POST", "/api/user/set-tokens", requestData)
+	resp, err := sendRequest("POST", "/api/user/set-tokens", baseHttpRequest)
 	if err != nil {
 		fmt.Println("Ошибка при установке токенов:", err)
 		return
@@ -166,9 +305,9 @@ func setTokens(reader *bufio.Reader) {
 		fmt.Println("Токены успешно установлены")
 	} else {
 		fmt.Println("Ошибка при установке токенов:", resp.Message)
-		fmt.Printf("Полный ответ сервера: %+v\n", resp)
 	}
 }
+
 func refreshToken() {
 	if currentSession.Token == "" {
 		fmt.Println("Сперва войдите в аккаунт")
@@ -182,8 +321,12 @@ func refreshToken() {
 	}
 
 	if resp.Status {
-		currentSession.Token = resp.Token
-		fmt.Println("Токен успешно обновлен")
+		if accountData, ok := resp.Account.(map[string]interface{}); ok {
+			currentSession.Token = accountData["token"].(string)
+			fmt.Println("Токен успешно обновлен")
+		} else {
+			fmt.Println("Ошибка: неожиданный формат ответа от сервера")
+		}
 	} else {
 		fmt.Println("Ошибка при обновлении токена:", resp.Message)
 	}
@@ -207,7 +350,7 @@ func sendRequest(method, path string, data interface{}) (ServerResponse, error) 
 		return resp, fmt.Errorf("ошибка при создании JSON: %v", err)
 	}
 
-	fmt.Printf("Отправляемые данные (JSON): %s\n", string(jsonData)) // Добавим логирование JSON
+	fmt.Printf("Отправляемые данные (JSON): %s\n", string(jsonData))
 
 	req, err := http.NewRequest(method, baseURL+path, bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -231,7 +374,7 @@ func sendRequest(method, path string, data interface{}) (ServerResponse, error) 
 		return resp, fmt.Errorf("ошибка при чтении ответа: %v", err)
 	}
 
-	fmt.Printf("Ответ сервера (сырые данные): %s\n", string(body)) // Добавим логирование ответа
+	fmt.Printf("Ответ сервера (сырые данные): %s\n", string(body))
 
 	err = json.Unmarshal(body, &resp)
 	if err != nil {

@@ -17,14 +17,6 @@ import (
 	"github.com/patrickmn/go-cache"
 )
 
-const (
-	RegisterEvent = "RegisterEvent"
-
-	ResetPasswordEvent  = "ResetPasswordEvent"
-	CheckKeyEvent       = "CheckKeyEvent"
-	SetNewPasswordEvent = "SetNewPasswordEvent"
-)
-
 // Глобальная переменная для взаимодействия с другими пакетами
 var MailManager *SmtpManager
 
@@ -32,23 +24,20 @@ var MailManager *SmtpManager
 type SmtpManager struct {
 	smtpMail, smtpPassword, smtpHost string
 	smtpPort                         int
+	mu                               sync.Mutex
+	client                           *smtp.Client
 
-	requester            *request.RequestHandler
-	awaitingConfirmation *cache.Cache
-
-	client *smtp.Client
-	mu     sync.Mutex
+	requester *request.RequestHandler
+	cache     *cache.Cache
 }
 
 // Аккаунт ожидающий подтверждения или восстановления
 type AwaitingAccount struct {
-	Mail         string
-	Password     string
-	jwtToken     string
-	awaitingType string // Подтверждение почты, восстановление пароля, установка нового пароля
-	Key          string // Ключ, который был отправлен на почту
+	Account *models.Account
 
-	sendTime time.Time // Время отправки сообщения, чтобы пользователь не мог заспамить кодами.
+	Key          string
+	isAuthorized bool
+	sendTime     time.Time
 }
 
 // init запускается автоматически и иницилизирует smtp менеджео
@@ -78,28 +67,26 @@ func init() {
 	go requester.ProcessRequests(15 * time.Second)
 
 	MailManager = &SmtpManager{
-		smtpMail:             smtpMail,
-		smtpPassword:         smtpPassword,
-		smtpHost:             smtpHost,
-		smtpPort:             smtpPort,
-		requester:            requester,
-		awaitingConfirmation: cache.New(15*time.Minute, 30*time.Minute),
+		smtpMail:     smtpMail,
+		smtpPassword: smtpPassword,
+		smtpHost:     smtpHost,
+		smtpPort:     smtpPort,
+		requester:    requester,
+		cache:        cache.New(15*time.Minute, 30*time.Minute),
 	}
 }
 
 // AuthorizeEmail зарегистрирует пользователя в кеша, отправит ему сообщение с кодом.
 // Возвращает код, который должен прислать пользователь
-func (sm *SmtpManager) AuthorizeEmail(email, password, jwtToken string) string {
+func (sm *SmtpManager) ValidateEmail(account *models.Account) error {
 	rand.Seed(time.Now().UnixNano())
 	code := rand.Intn(100000)
 	key := fmt.Sprintf("%05d", code)
 
 	awaitingAccount := AwaitingAccount{
-		Mail:         email,
-		Password:     password,
+		Account:      account,
 		Key:          key,
-		jwtToken:     jwtToken,
-		awaitingType: RegisterEvent,
+		isAuthorized: false,
 		sendTime:     time.Now(),
 	}
 
@@ -110,123 +97,87 @@ func (sm *SmtpManager) AuthorizeEmail(email, password, jwtToken string) string {
 	})
 
 	// Добавляем в кеш данные
-	sm.awaitingConfirmation.Set(jwtToken, awaitingAccount, 15*time.Minute)
+	sm.cache.Set(awaitingAccount.Account.Token, awaitingAccount, 15*time.Minute)
 
-	return key
+	return nil
 }
 
-func (sm *SmtpManager) ResetPassword(email, password, jwtToken string) string {
-	rand.Seed(time.Now().UnixNano())
-	code := rand.Intn(100000)
-	key := fmt.Sprintf("%05d", code)
-
-	awaitingAccount := AwaitingAccount{
-		Mail:         email,
-		Password:     password,
-		Key:          key,
-		jwtToken:     jwtToken,
-		awaitingType: ResetPasswordEvent,
-		sendTime:     time.Now(),
-	}
-
-	// Отправляем отложенный запрос на регистрацию.
-	sm.requester.HandleRequest(func() error {
-		sm.sendConfirmationEmail(awaitingAccount)
-		return nil
-	})
-
-	// Добавляем в кеш данные
-	sm.awaitingConfirmation.Set(jwtToken, awaitingAccount, 15*time.Minute)
-
-	return key
+// DeleteUser удаляет пользователя из бд
+func (sm *SmtpManager) DeleteUser(token string) {
+	sm.cache.Delete(token)
 }
 
-func (sm *SmtpManager) CheckKey(jwtToken, key string) (error, bool) {
-	account, ok := sm.awaitingConfirmation.Get(jwtToken)
+func (sm *SmtpManager) CheckKey(account *models.Account, key string) (*models.Account, error) {
+	// Запрос из кеша
+	accountCached, ok := sm.cache.Get(account.Token)
 	if !ok {
-		return fmt.Errorf("данный пользователь не ожидает подтверждения: "), false
+		return nil, fmt.Errorf("данный пользователь не ожидает подтверждения: ")
 	}
-
-	awaitingAccount, ok := account.(AwaitingAccount)
+	// Перевод типа
+	awaitingAccount, ok := accountCached.(AwaitingAccount)
 	if !ok {
 		fmt.Println("Ошибка при перевода типа AwaitingAccount")
-		return fmt.Errorf("данный пользователь не ожидает подтверждения: "), false
+		return nil, fmt.Errorf("данный пользователь не ожидает подтверждения: ")
 	}
 
+	// Сравнение ключей
 	isPass := awaitingAccount.Key == key
 
-	accountNew := models.Account{
-		Email:    awaitingAccount.Mail,
-		Password: awaitingAccount.Password,
-	}
-
+	// Возврат, если ключ не тот
 	if !isPass {
-		return fmt.Errorf("неправильный ключ"), false
+		return nil, fmt.Errorf("неправильный ключ")
 	}
 
-	switch awaitingAccount.awaitingType {
-	case RegisterEvent:
-		accountNew.Create()
-	}
+	// Установка статуса (авторизация пройдена)
+	awaitingAccount.isAuthorized = true
+	// Обновление данных в кеше
+	sm.cache.Set(account.Token, awaitingAccount, 15*time.Second)
 
-	sm.awaitingConfirmation.Delete(jwtToken)
-
-	return nil, true
+	return awaitingAccount.Account, nil
 }
 
-func (sm *SmtpManager) CheckKeyEvent(jwtToken, key, event string) (error, bool) {
-	account, ok := sm.awaitingConfirmation.Get(jwtToken)
+func (sm *SmtpManager) CheckAuthorized(token string) (*models.Account, bool) {
+	// Запрос из кеша
+	accountCached, ok := sm.cache.Get(token)
 	if !ok {
-		return fmt.Errorf("данный пользователь не ожидает подтверждения: "), false
+		return nil, false
 	}
-
-	awaitingAccount, ok := account.(AwaitingAccount)
+	// Перевод типа
+	awaitingAccount, ok := accountCached.(AwaitingAccount)
 	if !ok {
 		fmt.Println("Ошибка при перевода типа AwaitingAccount")
-		return fmt.Errorf("данный пользователь не ожидает подтверждения: "), false
+		return nil, false
 	}
 
-	isPass := awaitingAccount.Key == key
+	return awaitingAccount.Account, awaitingAccount.isAuthorized
+}
 
-	accountNew := models.Account{
-		Email:    awaitingAccount.Mail,
-		Password: awaitingAccount.Password,
+func (sm *SmtpManager) IsConsist(Email string) bool {
+	for _, v := range MailManager.cache.Items() {
+		// fmt.Printf("Ключ: %s, Значение: %v\n", k, v.Object)
+		accountTyped, ok := v.Object.(AwaitingAccount)
+		if !ok {
+			continue
+		}
+		if accountTyped.Account.Email == Email {
+			return true
+		}
 	}
-
-	if !isPass {
-		return fmt.Errorf("неправильный ключ"), false
-	}
-
-	switch event {
-	case RegisterEvent:
-		accountNew.Create()
-	case CheckKeyEvent:
-		return nil, true
-	}
-
-	token, ok := accountNew.CreateJWTToken()
-	if !ok {
-		u.Respond(w, u.Message(false, "Invalid request"))
-		return
-	}
-
-	sm.awaitingConfirmation.Delete(jwtToken)
-
-	return nil, true
+	return false
 }
 
 func (sm *SmtpManager) sendConfirmationEmail(awaitingAccount AwaitingAccount) error {
 	subject := "Подтверждение регистрации на сайте biance service"
 	body := fmt.Sprintf("Ваш код подтверждения: %s", awaitingAccount.Key)
 
-	return sm.sendEmailMessage([]string{awaitingAccount.Mail}, subject, body)
+	return sm.sendEmailMessage([]string{awaitingAccount.Account.Email}, subject, body)
 }
 
 func (sm *SmtpManager) sendPasswordReset(awaitingAccount AwaitingAccount) error {
 	subject := "Сброс пароля на сайте biance service"
 	body := fmt.Sprintf("Ваш код подтверждения: %s", awaitingAccount.Key)
 
-	return sm.sendEmailMessage([]string{awaitingAccount.Mail}, subject, body)
+	return sm.sendEmailMessage([]string{awaitingAccount.Account.Email}, subject, body)
 }
 
 func (sm *SmtpManager) connect() error {

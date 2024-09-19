@@ -36,6 +36,12 @@ func main() {
 		Routes: []string{
 			"/api/user/new",
 			"/api/user/login",
+
+			// Для этих путей проверка токена осуществляется прямо в обработчике
+			"/api/user/new/validate",
+			"/api/user/password/reset",
+			"/api/user/password/validate",
+			"/api/user/password/set",
 		},
 	}
 	// Применяем "посредника", который проверяет токен перед работой основного обработчика
