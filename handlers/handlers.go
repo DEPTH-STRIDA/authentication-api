@@ -6,7 +6,6 @@ import (
 	u "app/utils"
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -17,7 +16,8 @@ import (
 	"github.com/dgrijalva/jwt-go"
 )
 
-func CreateAccount(w http.ResponseWriter, r *http.Request) {
+// NewUser создание пользователя. Добавление почты в кеш, отправка сообщения, ожидание авторизации.
+func NewUser(w http.ResponseWriter, r *http.Request) {
 	log.Println("Starting CreateAccount handler")
 
 	// Получение данных аккаунта из тела
@@ -47,49 +47,16 @@ func CreateAccount(w http.ResponseWriter, r *http.Request) {
 	u.Respond(w, resp)
 }
 
-type VerifyEmailCodeRequest struct {
-	models.Account
-	awaitingType string
-	key          string
-}
-
-func VerifyEmailCodeAfterReg(w http.ResponseWriter, r *http.Request) {
+// NewValidate проверка кода по токену в кеше. В случае успеха создает пользователя.
+func NewValidate(w http.ResponseWriter, r *http.Request) {
 	log.Println("Starting CreateAccount handler")
 
-	account := &VerifyEmailCodeRequest{}
+	// Получение данных аккаунта из тела
+	account := &models.Account{}
 	err := json.NewDecoder(r.Body).Decode(account)
 	if err != nil {
 		log.Printf("Error decoding request body: %v", err)
 		u.Respond(w, u.Message(false, "Invalid request"))
-		return
-	}
-
-	err, ok := smtp.MailManager.CheckKey(account.Token, account.key)
-	if err != nil {
-		u.Respond(w, u.Message(false, "Invalid request"))
-		fmt.Println(err)
-	}
-
-	if !ok {
-		u.Respond(w, u.Message(false, "Invalid request"))
-		fmt.Println(err)
-	}
-
-	u.Respond(w, u.Message(true, "The account has been successfully verified and created"))
-}
-
-func ResetPassword(w http.ResponseWriter, r *http.Request) {
-	log.Println("Starting CreateAccount handler")
-
-	account := &VerifyEmailCodeRequest{}
-	err := json.NewDecoder(r.Body).Decode(account)
-	if err != nil {
-		log.Printf("Error decoding request body: %v", err)
-		u.Respond(w, u.Message(false, "Invalid request"))
-		return
-	}
-
-	if account.awaitingType != smtp.CheckKeyEvent || account.awaitingType != smtp.ResetPasswordEvent || account.awaitingType != smtp.SetNewPasswordEvent {
 		return
 	}
 
@@ -99,25 +66,16 @@ func ResetPassword(w http.ResponseWriter, r *http.Request) {
 		u.Respond(w, u.Message(false, "Invalid request"))
 		return
 	}
+	account.Token = token
 
-	switch account.awaitingType {
-	case smtp.ResetPasswordEvent:
-		account.Token = token
+	// Начать процесс восстановления почты
+	smtp.MailManager.AuthorizeEmail(account.Email, account.Password, account.Token)
 
-		key := smtp.MailManager.ResetPassword(account.Email, "", token)
-
-		resp := u.Message(true, "The message has been sent. Confirmation is expected")
-		resp["key"] = key
-
-		u.Respond(w, resp)
-	case smtp.CheckKeyEvent:
-		err, _ := smtp.MailManager.CheckKeyEvent(account.Token, account.key, smtp.CheckKeyEvent)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-	}
-
+	// Создание мапы
+	resp := u.Message(true, "The account has been successfully added for verification")
+	// Добавление аккаунта
+	resp["account"] = account.Token
+	u.Respond(w, resp)
 }
 
 func Authenticate(w http.ResponseWriter, r *http.Request) {

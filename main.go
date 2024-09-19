@@ -18,18 +18,15 @@ func main() {
 	// Машрутизатор, который управляет какой обработчик запустить и на какой путь.
 	router := mux.NewRouter()
 
-	// Регистрация аккаунта
-	router.HandleFunc("/api/user/new", handlers.CreateAccount).Methods("POST")
-	// Подтверждение почты, восстановление пароля.
-	router.HandleFunc("/api/user/verify-email-code-after-reg", handlers.VerifyEmailCodeAfterReg).Methods("POST")
+	router.HandleFunc("/api/user/new", handlers.NewUser).Methods("POST")
+	router.HandleFunc("/api/user/new/validate", handlers.NewValidate).Methods("POST")
 
-	router.HandleFunc("/api/user/reset-password", handlers.ResetPassword).Methods("POST")
+	router.HandleFunc("/api/user/password/reset", handlers.ResetPassword).Methods("POST")
+	router.HandleFunc("/api/user/password/validate", handlers.ValidatePassword).Methods("POST")
+	router.HandleFunc("/api/user/password/validate", handlers.ValidatePassword).Methods("POST")
 
-	// Авторизация
 	router.HandleFunc("/api/user/login", handlers.Authenticate).Methods("POST")
-	// Уставнока токена в профиль
 	router.HandleFunc("/api/user/set-tokens", handlers.SetTokens).Methods("POST")
-	// Обновление JWT токена
 	router.HandleFunc("/api/user/refresh", handlers.RefreshJWTToken).Methods("POST")
 
 	/////////////////////////////////////////////////////////////////////////////////
