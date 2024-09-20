@@ -68,7 +68,7 @@ func init() {
 }
 
 // ValidateEmail отправляет код на почту, заносит в кеш данные аккаунта. Возвращает токен.
-func (sm *SmtpManager) ValidateEmail(account *models.Account) (string, error) {
+func (sm *SmtpManager) ValidateEmail(account models.Account) (string, error) {
 	rand.Seed(time.Now().UnixNano())
 	code := rand.Intn(100000)
 	key := fmt.Sprintf("%05d", code)
@@ -118,19 +118,19 @@ func (sm *SmtpManager) CheckKey(token, key string) (string, error) {
 }
 
 // CheckStatus проверяет статус аккаунта. Возвращает bool.
-func (sm *SmtpManager) CheckStatus(token string) bool {
+func (sm *SmtpManager) CheckStatus(token string) (models.Account, bool) {
 	// Запрос из кеша
 	accountCached, ok := sm.cache.Get(token)
 	if !ok {
-		return false
+		return models.Account{}, false
 	}
 
 	// Возврат, если ключ не тот
 	if accountCached.isAuthorized {
-		return true
+		return accountCached.Account, true
 	}
 
-	return false
+	return models.Account{}, false
 }
 
 // Delete удаляет аккаунт из кеша.
@@ -142,6 +142,7 @@ func (sm *SmtpManager) Delete(token string) {
 ///////////////////////////////////////////////////////////////////////////////////////
 
 func (sm *SmtpManager) sendConfirmationEmail(awaitingAccount CachedAccount) error {
+	fmt.Println("Отправка сообщения подтверждения на почту: ", awaitingAccount.Account.Email)
 	subject := "Подтверждение регистрации на сайте biance service"
 	body := fmt.Sprintf("Ваш код подтверждения: %s", awaitingAccount.Key)
 

@@ -82,13 +82,11 @@ func (account *Account) Create() map[string]interface{} {
 	}
 	log.Println("Валидация аккаунта прошла успешно")
 
-	// Хеширование пароля стандартной библиотекой. Сложность хеширования по-умолчанию 10. Пароль предворительно переведн в массив байт.
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(account.Password), bcrypt.DefaultCost)
-	if err != nil {
-		log.Printf("Ошибка хеширования пароля: %v", err)
-		return u.Message(false, "Failed to hash password")
+	hashedPassword := HashedPassword(account.Password)
+	if hashedPassword == "" {
+		log.Printf("Не удалось хешировать пароль.")
+		return u.Message(false, "Failed to create account, database error")
 	}
-	log.Println("Пароль успешно захеширован")
 
 	// Установка пароля в поле структуры
 	account.Password = string(hashedPassword)
@@ -145,6 +143,17 @@ func (account *Account) Create() map[string]interface{} {
 	log.Printf("Подготовлен ответ: %+v", response)
 
 	return response
+}
+
+func HashedPassword(password string) string {
+	// Хеширование пароля стандартной библиотекой. Сложность хеширования по-умолчанию 10. Пароль предворительно переведн в массив байт.
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		log.Printf("Ошибка хеширования пароля: %v", err)
+		return ""
+	}
+	log.Println("Пароль успешно захеширован")
+	return string(hashedPassword)
 }
 
 // CreateJWTToken создает jwt токен для данных пользователя

@@ -6,6 +6,7 @@ import (
 	u "app/utils"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -50,14 +51,15 @@ func NewUser(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Полученный запрос: %+v", baseHttpRequest)
 
 	// Проверка логина/пароля перед процессом создания
+
 	if resp, ok := baseHttpRequest.Account.Validate(); !ok {
 		log.Printf("Ошибка валидации аккаунта: %v", resp)
 		u.Respond(w, u.Message(false, "Invalid login credentials. Please try again"))
 		return
 	}
 	log.Println("Валидация аккаунта прошла успешно")
-
-	token, err := smtp.MailManager.ValidateEmail(&baseHttpRequest.Account)
+	fmt.Println("Данные токорые отправляются в функцию ValidateEmail: ", baseHttpRequest)
+	token, err := smtp.MailManager.ValidateEmail(baseHttpRequest.Account)
 
 	resp := u.Message(true, "The account has been successfully added for verification")
 	if err != nil {
@@ -93,8 +95,15 @@ func NewValidate(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("Полученный токен: %s", token)
 
-	_, err = smtp.MailManager.CheckKey(token, baseHttpRequest.Key)
+	newToken, err := smtp.MailManager.CheckKey(token, baseHttpRequest.Key)
 	if err != nil {
+		log.Printf("Ошибка проверки ключа: %v", err)
+		u.Respond(w, u.Message(false, "Invalid request"))
+		return
+	}
+
+	newAccount, ok := smtp.MailManager.CheckStatus(newToken)
+	if !ok {
 		log.Printf("Ошибка проверки ключа: %v", err)
 		u.Respond(w, u.Message(false, "Invalid request"))
 		return
@@ -102,7 +111,7 @@ func NewValidate(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Проверка ключа успешна, аккаунт: %+v", baseHttpRequest)
 
-	resp := baseHttpRequest.Account.Create()
+	resp := newAccount.Create()
 	if !resp["status"].(bool) {
 		log.Printf("Ошибка создания аккаунта: %v", resp["message"])
 		u.Respond(w, resp)
@@ -126,28 +135,24 @@ func ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Проверка логина/пароля перед процессом создания
-	if resp, ok := baseHttpRequest.Account.Validate(); !ok {
-		log.Printf("Ошибка валидации аккаунта: %+v", resp)
+	// Проверка электронной почты
+	isValid, _ := u.ValidateEmail(baseHttpRequest.Account.Email)
+	if !isValid {
 		u.Respond(w, u.Message(false, "Invalid request"))
 		return
 	}
 
-	// Создание JWT токена по данным из тела
-	token, ok := baseHttpRequest.Account.CreateJWTToken()
-	if !ok {
+	// Начать процесс восстановления почты
+	token, err := smtp.MailManager.ValidateEmail(baseHttpRequest.Account)
+	if err != nil {
 		u.Respond(w, u.Message(false, "Invalid request"))
 		return
 	}
 	baseHttpRequest.Account.Token = token
-
-	// Начать процесс восстановления почты
-	smtp.MailManager.ValidateEmail(&baseHttpRequest.Account)
-
 	// Создание мапы
 	resp := u.Message(true, "The account has been successfully added for verification")
 	// Добавление аккаунта
-	resp["account"] = baseHttpRequest.Account.Token
+	resp["account"] = baseHttpRequest.Account
 	u.Respond(w, resp)
 }
 
@@ -168,26 +173,17 @@ func ValidatePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Проверяет корректность пользователя в бд, получаем аккаунт
-	account, isAuthorize := smtp.MailManager.CheckAuthorized(token)
-	if !isAuthorize {
+	newToken, err := smtp.MailManager.CheckKey(token, baseHttpRequest.Key)
+	if err != nil {
 		u.Respond(w, u.Message(false, "Invalid request"))
 		return
 	}
 
-	// Получаем данные в БД
-	accountDB := models.GetUserViaEmail(account.Email)
-	if accountDB == nil {
-		u.Respond(w, u.Message(false, "Invalid request"))
-		return
-	}
-	// Переписываем пароль
-	accountDB.Password = account.Password
-
-	// Обновляем пароль в БД
-	models.UpdateAllFields(accountDB)
+	baseHttpRequest.Account.Token = newToken
 
 	// Создание мапы
 	resp := u.Message(true, "The account has been successfully update")
+	resp["account"] = baseHttpRequest.Account
 	u.Respond(w, resp)
 }
 
@@ -207,15 +203,35 @@ func SetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	baseHttpRequest.Account.Token = token
-
-	account, err := smtp.MailManager.CheckKey(&baseHttpRequest.Account, baseHttpRequest.Key)
-	if err != nil {
+	account, ok := smtp.MailManager.CheckStatus(token)
+	if !ok {
 		u.Respond(w, u.Message(false, "Invalid request"))
 		return
 	}
 
-	account.Create()
+	accountDB := models.GetUserViaEmail(account.Email)
+	if accountDB == nil {
+		u.Respond(w, u.Message(false, "Invalid request"))
+		return
+	}
+
+	fmt.Println("Получен старый аккаунт из БД: ", baseHttpRequest.Account.Password)
+
+	fmt.Println("Пароль заменен на: ", baseHttpRequest.Account.Password)
+	hashedPassword := models.HashedPassword(baseHttpRequest.Account.Password)
+	if hashedPassword == "" {
+		log.Printf("Не удалось хешировать пароль.")
+		return
+	}
+	accountDB.Password = hashedPassword
+	fmt.Println("Пароль заменен на: ", accountDB)
+
+	err = models.UpdateAllFields(accountDB)
+	if err != nil {
+		fmt.Println(err)
+		resp := u.Message(false, "Internal error")
+		u.Respond(w, resp)
+	}
 
 	// Создание мапы
 	resp := u.Message(true, "The account has been successfully created")
