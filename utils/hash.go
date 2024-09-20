@@ -5,6 +5,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"io"
 
@@ -118,4 +119,13 @@ func DcryptToken(encryptedToken string, password string) (string, error) {
 
 	// Возвращаем расшифрованный токен в виде строки
 	return string(plaintext), nil
+}
+
+// GenerateSecureToken возвращает случайный токен
+func GenerateSecureToken(length int) string {
+	b := make([]byte, length)
+	if _, err := rand.Read(b); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(b)
 }

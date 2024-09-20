@@ -4,6 +4,7 @@ package smtp
 import (
 	"app/models"
 	"app/request"
+	u "app/utils"
 	"crypto/tls"
 	"fmt"
 	"math/rand"
@@ -14,7 +15,6 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
-	"github.com/patrickmn/go-cache"
 )
 
 // Глобальная переменная для взаимодействия с другими пакетами
@@ -28,16 +28,7 @@ type SmtpManager struct {
 	client                           *smtp.Client
 
 	requester *request.RequestHandler
-	cache     *cache.Cache
-}
-
-// Аккаунт ожидающий подтверждения или восстановления
-type AwaitingAccount struct {
-	Account *models.Account
-
-	Key          string
-	isAuthorized bool
-	sendTime     time.Time
+	cache     *Cache
 }
 
 // init запускается автоматически и иницилизирует smtp менеджео
@@ -72,22 +63,20 @@ func init() {
 		smtpHost:     smtpHost,
 		smtpPort:     smtpPort,
 		requester:    requester,
-		cache:        cache.New(15*time.Minute, 30*time.Minute),
+		cache:        NewCacheAccount(15*time.Minute, 15*time.Minute),
 	}
 }
 
-// AuthorizeEmail зарегистрирует пользователя в кеша, отправит ему сообщение с кодом.
-// Возвращает код, который должен прислать пользователь
-func (sm *SmtpManager) ValidateEmail(account *models.Account) error {
+// ValidateEmail отправляет код на почту, заносит в кеш данные аккаунта. Возвращает токен.
+func (sm *SmtpManager) ValidateEmail(account *models.Account) (string, error) {
 	rand.Seed(time.Now().UnixNano())
 	code := rand.Intn(100000)
 	key := fmt.Sprintf("%05d", code)
 
-	awaitingAccount := AwaitingAccount{
+	awaitingAccount := CachedAccount{
 		Account:      account,
 		Key:          key,
 		isAuthorized: false,
-		sendTime:     time.Now(),
 	}
 
 	// Отправляем отложенный запрос на регистрацию.
@@ -97,83 +86,69 @@ func (sm *SmtpManager) ValidateEmail(account *models.Account) error {
 	})
 
 	// Добавляем в кеш данные
-	sm.cache.Set(awaitingAccount.Account.Token, awaitingAccount, 15*time.Minute)
+	token := u.GenerateSecureToken(32)
+	sm.cache.Set(token, awaitingAccount)
 
-	return nil
+	return token, nil
 }
 
-// DeleteUser удаляет пользователя из бд
-func (sm *SmtpManager) DeleteUser(token string) {
-	sm.cache.Delete(token)
-}
-
-func (sm *SmtpManager) CheckKey(account *models.Account, key string) (*models.Account, error) {
-	// Запрос из кеша
-	accountCached, ok := sm.cache.Get(account.Token)
-	if !ok {
-		return nil, fmt.Errorf("данный пользователь не ожидает подтверждения: ")
-	}
-	// Перевод типа
-	awaitingAccount, ok := accountCached.(AwaitingAccount)
-	if !ok {
-		fmt.Println("Ошибка при перевода типа AwaitingAccount")
-		return nil, fmt.Errorf("данный пользователь не ожидает подтверждения: ")
-	}
-
-	// Сравнение ключей
-	isPass := awaitingAccount.Key == key
-
-	// Возврат, если ключ не тот
-	if !isPass {
-		return nil, fmt.Errorf("неправильный ключ")
-	}
-
-	// Установка статуса (авторизация пройдена)
-	awaitingAccount.isAuthorized = true
-	// Обновление данных в кеше
-	sm.cache.Set(account.Token, awaitingAccount, 15*time.Second)
-
-	return awaitingAccount.Account, nil
-}
-
-func (sm *SmtpManager) CheckAuthorized(token string) (*models.Account, bool) {
+// CheckKey проверяет ключ в почте, устанавливает статус. Возвращает новый токен.
+func (sm *SmtpManager) CheckKey(token, key string) (string, error) {
 	// Запрос из кеша
 	accountCached, ok := sm.cache.Get(token)
 	if !ok {
-		return nil, false
-	}
-	// Перевод типа
-	awaitingAccount, ok := accountCached.(AwaitingAccount)
-	if !ok {
-		fmt.Println("Ошибка при перевода типа AwaitingAccount")
-		return nil, false
+		return "", fmt.Errorf("данный пользователь не ожидает подтверждения: ")
 	}
 
-	return awaitingAccount.Account, awaitingAccount.isAuthorized
+	// Возврат, если ключ не тот
+	if !(accountCached.Key == key) {
+		return "", fmt.Errorf("неправильный ключ")
+	}
+
+	// Установка статуса (авторизация пройдена)
+	accountCached.isAuthorized = true
+	sm.cache.Delete(token)
+
+	newToken := u.GenerateSecureToken(32)
+	sm.cache.Set(newToken, accountCached)
+	// Обновление данных в кеше
+	sm.cache.Set(token, accountCached)
+
+	return newToken, nil
 }
 
-func (sm *SmtpManager) IsConsist(Email string) bool {
-	for _, v := range MailManager.cache.Items() {
-		// fmt.Printf("Ключ: %s, Значение: %v\n", k, v.Object)
-		accountTyped, ok := v.Object.(AwaitingAccount)
-		if !ok {
-			continue
-		}
-		if accountTyped.Account.Email == Email {
-			return true
-		}
+// CheckStatus проверяет статус аккаунта. Возвращает bool.
+func (sm *SmtpManager) CheckStatus(token string) bool {
+	// Запрос из кеша
+	accountCached, ok := sm.cache.Get(token)
+	if !ok {
+		return false
 	}
+
+	// Возврат, если ключ не тот
+	if accountCached.isAuthorized {
+		return true
+	}
+
 	return false
 }
 
-func (sm *SmtpManager) sendConfirmationEmail(awaitingAccount AwaitingAccount) error {
+// Delete удаляет аккаунт из кеша.
+func (sm *SmtpManager) Delete(token string) {
+	sm.cache.Delete(token)
+}
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+
+func (sm *SmtpManager) sendConfirmationEmail(awaitingAccount CachedAccount) error {
 	subject := "Подтверждение регистрации на сайте biance service"
 	body := fmt.Sprintf("Ваш код подтверждения: %s", awaitingAccount.Key)
 
 	return sm.sendEmailMessage([]string{awaitingAccount.Account.Email}, subject, body)
 }
 
-func (sm *SmtpManager) sendPasswordReset(awaitingAccount AwaitingAccount) error {
+func (sm *SmtpManager) sendPasswordReset(awaitingAccount CachedAccount) error {
 	subject := "Сброс пароля на сайте biance service"
 	body := fmt.Sprintf("Ваш код подтверждения: %s", awaitingAccount.Key)
 

@@ -1,26 +1,29 @@
+// request предназначен для предоставления возможности откладывать выполнение функций.
+// Функции (запросы) обрабатываются fifo.
 package request
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 )
 
+// Request запроса, который кладется в "откладыватель"
 type Request func() error
 
+// Откладыватель
 type RequestHandler struct {
-	log.Logger
-	requests            chan Request
-	lowPriorityRequests chan Request
+	requests            chan Request // Канал с запросами базовой важности
+	lowPriorityRequests chan Request // Канал с запросами пониженной важности. Пока не будут выполненый все запросы базовой важности, обработка пониженной не запустится.
 	ctx                 context.Context
 	cancel              context.CancelFunc
 	mu                  sync.Mutex
 	isProcessing        bool
 }
 
+// NewRequestHandler конструктор "откладывателя"
 func NewRequestHandler(bufferSize int64) (*RequestHandler, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	requestApp := RequestHandler{
@@ -147,7 +150,8 @@ func (app *RequestHandler) StopProcessing() {
 	app.mu.Unlock()
 }
 
-// incrementPause - пример factor 1.5 увеличение времени на 50% после каждой "взрывной итерации"
+// incrementPause пример функции, которая экспонециально контролирует время между выполнением запросов, если запросы идут подряд
+// Например, factor 1.5 увеличение времени на 50% после каждой "взрывной итерации"
 func IncrementPause(factor float64, maxPause time.Duration) func(currentPause time.Duration) time.Duration {
 	return func(currentPause time.Duration) time.Duration {
 		basePause := time.Second

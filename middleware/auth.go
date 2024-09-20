@@ -12,12 +12,16 @@ import (
 	"github.com/dgrijalva/jwt-go"
 )
 
+// Структуру с путями, для которых не нужен JWT токен
 type NotAuthRoutes struct {
 	Routes []string
 }
 
+// Глобальный экземпляр NotAuthRoutes для взаимодействия с другими пакетами
 var NotAuth NotAuthRoutes
 
+// JwtAuthentication http обработчик, который выполняется первым для аутенфикации по токену.
+// Если токен валидный то, обработчик добавлят контекс с id аккаунта.
 func JwtAuthentication(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Println("Starting JwtAuthentication middleware")

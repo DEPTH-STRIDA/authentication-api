@@ -6,7 +6,6 @@ import (
 	u "app/utils"
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -58,26 +57,18 @@ func NewUser(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Println("Валидация аккаунта прошла успешно")
 
-	token, ok := baseHttpRequest.Account.CreateJWTToken()
-	if !ok {
-		log.Println("Не удалось создать JWT токен")
-		u.Respond(w, u.Message(false, "Invalid request"))
-		return
-	}
-	log.Printf("Создан JWT токен: %s", token)
-	baseHttpRequest.Account.Token = token
-
-	fmt.Println("TEST: ", baseHttpRequest)
-	err = smtp.MailManager.ValidateEmail(&baseHttpRequest.Account)
-	if err != nil {
-		log.Printf("Ошибка при валидации email: %v", err)
-		u.Respond(w, u.Message(false, "Error validating email"))
-		return
-	}
-	log.Println("Email успешно отправлен для валидации")
+	token, err := smtp.MailManager.ValidateEmail(&baseHttpRequest.Account)
 
 	resp := u.Message(true, "The account has been successfully added for verification")
-	resp["account"] = baseHttpRequest.Account.Token
+	if err != nil {
+		u.Respond(w, u.Message(false, "Invalid login credentials. Please try again"))
+		return
+	}
+
+	baseHttpRequest.Account.Token = token
+	baseHttpRequest.Account.Email = ""
+	baseHttpRequest.Account.Password = ""
+	resp["account"] = baseHttpRequest.Account
 	log.Printf("Отправляемый ответ: %+v", resp)
 	u.Respond(w, resp)
 }
@@ -102,22 +93,23 @@ func NewValidate(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("Полученный токен: %s", token)
 
-	account, err := smtp.MailManager.CheckKey(&baseHttpRequest.Account, baseHttpRequest.Key)
+	_, err = smtp.MailManager.CheckKey(token, baseHttpRequest.Key)
 	if err != nil {
 		log.Printf("Ошибка проверки ключа: %v", err)
 		u.Respond(w, u.Message(false, "Invalid request"))
 		return
 	}
-	log.Printf("Проверка ключа успешна, аккаунт: %+v", account)
 
-	resp := account.Create()
+	log.Printf("Проверка ключа успешна, аккаунт: %+v", baseHttpRequest)
+
+	resp := baseHttpRequest.Account.Create()
 	if !resp["status"].(bool) {
 		log.Printf("Ошибка создания аккаунта: %v", resp["message"])
 		u.Respond(w, resp)
 		return
 	}
 
-	smtp.MailManager.DeleteUser(account.Token)
+	smtp.MailManager.Delete(token)
 	log.Println("Пользователь удален из кэша")
 
 	log.Println("Аккаунт успешно создан в базе данных")

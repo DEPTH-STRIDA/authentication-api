@@ -307,7 +307,7 @@ func GetTokens(userID uint) (apiKey string, SecretKey string, err error) {
 	// Получение аккаунта из БД по id
 	account := GetUser(userID)
 	if account == nil {
-		return "", "", fmt.Errorf("User not found")
+		return "", "", fmt.Errorf("user not found")
 	}
 
 	return account.APIKey, account.SecretKey, nil

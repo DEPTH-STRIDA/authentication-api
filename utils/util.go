@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 	"unicode"
 )
@@ -32,17 +33,17 @@ func ValidateEmail(email string) (bool, string) {
 	// // \.                  - точка
 	// // [a-z]{2,4}          - от 2 до 4 букв (домен верхнего уровня)
 	// // $                   - конец строки
-	// emailRegex := regexp.MustCompile(`^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,4}$`)
+	emailRegex := regexp.MustCompile(`^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,4}$`)
 
-	// // Проверяем, соответствует ли email заданному регулярному выражению
-	// if !emailRegex.MatchString(email) {
-	// 	return false, "Invalid email format"
-	// }
+	// Проверяем, соответствует ли email заданному регулярному выражению
+	if !emailRegex.MatchString(email) {
+		return false, "Invalid email format"
+	}
 
-	// // Проверяем длину email (максимум 254 символа согласно RFC 5321)
-	// if len(email) > 254 {
-	// 	return false, "Email is too long"
-	// }
+	// Проверяем длину email (максимум 254 символа согласно RFC 5321)
+	if len(email) > 254 {
+		return false, "Email is too long"
+	}
 
 	return true, ""
 }
@@ -84,12 +85,14 @@ func ValidatePassword(password string) (bool, string) {
 	return true, ""
 }
 
+// GetHeaderToken извлекает из запроса заголовок Authorization, делит его на части по " ", возвращает вторую часть
 func GetHeaderToken(r *http.Request) (string, error) {
+	// Извелечени заголовка Authorization
 	tokenHeader := r.Header.Get("Authorization")
 
 	if tokenHeader == "" {
 		log.Println("Error: Missing authentication token")
-		return "", fmt.Errorf("отсутствует токен аутентификации")
+		return "", fmt.Errorf("отсутствует токен аутентификации - Authorization")
 	}
 
 	splitted := strings.Split(tokenHeader, " ")
