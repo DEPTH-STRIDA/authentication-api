@@ -87,7 +87,7 @@ func NewValidate(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("Полученный запрос: %+v", baseHttpRequest)
 
-	token, err := u.GetHeaderToken(r)
+	token, err := u.GetHeaderToken(r, "Authorization")
 	if err != nil {
 		log.Printf("Ошибка получения токена из заголовка: %v", err)
 		u.Respond(w, u.Message(false, "Invalid request"))
@@ -166,7 +166,7 @@ func ValidatePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := u.GetHeaderToken(r)
+	token, err := u.GetHeaderToken(r, "Validation")
 	if err != nil {
 		u.Respond(w, u.Message(false, "Invalid request"))
 		return
@@ -197,7 +197,7 @@ func SetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := u.GetHeaderToken(r)
+	token, err := u.GetHeaderToken(r, "Validation")
 	if err != nil {
 		u.Respond(w, u.Message(false, "Invalid request"))
 		return

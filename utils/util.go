@@ -86,9 +86,9 @@ func ValidatePassword(password string) (bool, string) {
 }
 
 // GetHeaderToken извлекает из запроса заголовок Authorization, делит его на части по " ", возвращает вторую часть
-func GetHeaderToken(r *http.Request) (string, error) {
+func GetHeaderToken(r *http.Request, headerName string) (string, error) {
 	// Извелечени заголовка Authorization
-	tokenHeader := r.Header.Get("Authorization")
+	tokenHeader := r.Header.Get(headerName)
 
 	if tokenHeader == "" {
 		log.Println("Error: Missing authentication token")

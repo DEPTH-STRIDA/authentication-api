@@ -26,9 +26,9 @@ func main() {
 	router.HandleFunc("/api/user/password/set", handlers.SetPassword).Methods("POST")
 
 	router.HandleFunc("/api/user/login", handlers.Authenticate).Methods("POST")
-	router.HandleFunc("/api/user/set-tokens", handlers.SetTokens).Methods("POST")
 	router.HandleFunc("/api/user/refresh", handlers.RefreshJWTToken).Methods("POST")
 
+	router.HandleFunc("/api/user/set-tokens", handlers.SetTokens).Methods("POST")
 	router.HandleFunc("/api/user/get-tokens", handlers.GetTokens).Methods("POST")
 
 	// Установка путей для которых не надо проверять токен
