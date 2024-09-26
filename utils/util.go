@@ -4,7 +4,6 @@ package utils
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -85,20 +84,17 @@ func ValidatePassword(password string) (bool, string) {
 	return true, ""
 }
 
-// GetHeaderToken извлекает из запроса заголовок Authorization, делит его на части по " ", возвращает вторую часть
-func GetHeaderToken(r *http.Request, headerName string) (string, error) {
-	// Извелечени заголовка Authorization
-	tokenHeader := r.Header.Get(headerName)
-
-	if tokenHeader == "" {
-		log.Println("Error: Missing authentication token")
-		return "", fmt.Errorf("отсутствует токен аутентификации - Authorization")
+// ExtractToken извлекает токен из заголовка запроса.
+func ExtractToken(r *http.Request, headerName string) (string, error) {
+	bearerToken := r.Header.Get("Authorization")
+	if bearerToken == "" {
+		return "", fmt.Errorf("отсутствует токен аутентификации")
 	}
 
-	splitted := strings.Split(tokenHeader, " ")
-	if len(splitted) != 2 {
+	parts := strings.Split(bearerToken, " ")
+	if len(parts) != 2 || parts[0] != "Bearer" {
 		return "", fmt.Errorf("неверный формат токена аутентификации")
 	}
 
-	return splitted[1], nil
+	return parts[1], nil
 }

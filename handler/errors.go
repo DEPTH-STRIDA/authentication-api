@@ -1,5 +1,5 @@
 // handlers хранит http обработчики.
-package handlers
+package handler
 
 import (
 	u "app/utils"

@@ -2,108 +2,142 @@ package smtp
 
 import (
 	"app/models"
+	"context"
 	"sync"
 	"time"
 )
 
-// Кеш для хранения аккаунтов, которые нахождятся на проверка перед создание аккаунта
+// Cache представляет кэш для хранения аккаунтов, ожидающих подтверждения или восстановления
 type Cache struct {
-	mu sync.RWMutex
-
+	mu              sync.RWMutex
 	accountLiveTime time.Duration
 	clearInterval   time.Duration
-
-	accounts map[string]CachedAccount
+	accounts        map[string]CachedAccount
 }
 
-// Аккаунт ожидающий подтверждения или восстановления
+// CachedAccount представляет аккаунт, ожидающий подтверждения или восстановления
 type CachedAccount struct {
-	Account models.Account // Встривание полей базовой структуры "аккаунт"
-
-	Key          string    // ключ, который отправлется на почту
-	isAuthorized bool      // Статус, который указываеть прошел ли данный токен валидацию через почту и может ли создавать аккаунт или менять пароль
-	expiredAt    time.Time // Время, когда аккаунт истечет
+	Account      models.Account // Встраивание полей базовой структуры "аккаунт"
+	Key          string         // Ключ, который отправляется на почту
+	IsAuthorized bool           // Статус, указывающий, прошел ли данный токен валидацию через почту
+	ExpiredAt    time.Time      // Время, когда аккаунт истечет
 }
 
-// NewCacheAccount конструктор CacheAccount
-func NewCacheAccount(accountLiveTime time.Duration, clearInterval time.Duration) *Cache {
-
+// NewCache создает новый экземпляр Cache
+func NewCache(accountLiveTime, clearInterval time.Duration) *Cache {
 	cache := &Cache{
 		accounts:        make(map[string]CachedAccount),
 		accountLiveTime: accountLiveTime,
 		clearInterval:   clearInterval,
 	}
-	go cache.startClean()
-
 	return cache
 }
 
-// startClean запускает горутину, которая раз в интервал времени запускает очистку кеша
-func (ca *Cache) startClean() {
+// StartClean запускает периодическую очистку просроченных элементов кэша
+func (ca *Cache) StartClean(ctx context.Context) {
 	ticker := time.NewTicker(ca.clearInterval)
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			ca.clean()
+			ca.cleanExpired()
+		case <-ctx.Done():
+			return
 		}
 	}
 }
 
-// cleanC проходится по кешу и удаляем данные с истекшим сроком
-func (ca *Cache) clean() {
-	for i, _ := range ca.accounts {
-		ca.Delete(i)
+// cleanExpired удаляет все просроченные элементы из кэша
+func (ca *Cache) cleanExpired() {
+	ca.mu.Lock()
+	defer ca.mu.Unlock()
+
+	now := time.Now()
+	for key, value := range ca.accounts {
+		if now.After(value.ExpiredAt) {
+			delete(ca.accounts, key)
+		}
 	}
 }
 
-// Set устанавливает значение в мапе
+// Set устанавливает значение в кэше
 func (ca *Cache) Set(key string, value CachedAccount) {
 	ca.mu.Lock()
 	defer ca.mu.Unlock()
 
-	value.expiredAt = time.Now().Add(ca.accountLiveTime)
-
+	value.ExpiredAt = time.Now().Add(ca.accountLiveTime)
 	ca.accounts[key] = value
 }
 
-// Get возвращает значение из мапы и наличие в мапе
+// Get возвращает значение из кэша и признак его наличия
 func (ca *Cache) Get(key string) (CachedAccount, bool) {
 	ca.mu.RLock()
-	defer ca.mu.RUnlock()
-
 	value, ok := ca.accounts[key]
-	// Если структура просрочена, то удаляем
-	if time.Now().After(value.expiredAt) {
-		go ca.Delete(key)
+	ca.mu.RUnlock()
+
+	if !ok || time.Now().After(value.ExpiredAt) {
+		ca.DeleteExpired(key)
 		return CachedAccount{}, false
 	}
 
-	return value, ok
+	return value, true
 }
 
-// Delete удаляет значению по ключу
-func (ca *Cache) Delete(key string) {
+// DeleteExpired удаляет просроченное значение по ключу
+func (ca *Cache) DeleteExpired(key string) bool {
 	ca.mu.Lock()
 	defer ca.mu.Unlock()
-
-	delete(ca.accounts, key)
-}
-
-// GetAccountStatus возвращает статус аккаунта, либо отстутствие в кеше
-func (ca *Cache) GetAccountStatus(key string) bool {
-	ca.mu.RLock()
-	ca.mu.RUnlock()
 
 	value, ok := ca.accounts[key]
 	if !ok {
 		return false
 	}
-	// Если структура просрочена, то удаляем
-	if time.Now().After(value.expiredAt) {
-		go ca.Delete(key)
+
+	if time.Now().After(value.ExpiredAt) {
+		delete(ca.accounts, key)
+		return true
+	}
+
+	return false
+}
+
+// Delete удаляет значение из кэша по ключу
+func (ca *Cache) Delete(key string) {
+	ca.mu.Lock()
+	defer ca.mu.Unlock()
+	delete(ca.accounts, key)
+}
+
+// GetAccountStatus возвращает статус авторизации аккаунта
+func (ca *Cache) GetAccountStatus(key string) bool {
+	value, ok := ca.Get(key)
+	return ok && value.IsAuthorized
+}
+
+// Update обновляет существующий аккаунт в кэше
+func (ca *Cache) Update(key string, updateFunc func(*CachedAccount) bool) bool {
+	ca.mu.Lock()
+	defer ca.mu.Unlock()
+
+	value, ok := ca.accounts[key]
+	if !ok || time.Now().After(value.ExpiredAt) {
+		delete(ca.accounts, key)
 		return false
 	}
 
-	return value.isAuthorized
+	if updated := updateFunc(&value); updated {
+		value.ExpiredAt = time.Now().Add(ca.accountLiveTime) // Обновляем время истечения
+		ca.accounts[key] = value
+		return true
+	}
+
+	return false
+}
+
+// Len возвращает количество элементов в кэше
+func (ca *Cache) Len() int {
+	ca.mu.RLock()
+	defer ca.mu.RUnlock()
+	return len(ca.accounts)
 }

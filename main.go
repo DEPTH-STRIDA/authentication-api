@@ -1,69 +1,64 @@
 package main
 
 import (
-	"app/handlers"
-	"app/middleware"
-	"fmt"
+	h "app/handler"
+	"app/models"
+	"app/smtp"
 	"net/http"
-
-	"app/console"
+	"os"
 
 	"github.com/gorilla/mux"
+	"github.com/joho/godotenv"
 )
 
 func main() {
-	// Иницилизация кеша для аккаунтов
-	// models.CachedAccounts = cache.New(5*time.Minute, 10*time.Minute)
-
-	// Машрутизатор, который управляет какой обработчик запустить и на какой путь.
 	router := mux.NewRouter()
 
-	router.HandleFunc("/api/user/new", handlers.NewUser).Methods("POST")
-	router.HandleFunc("/api/user/new/validate", handlers.NewValidate).Methods("POST")
+	// Новый аккаунт
+	router.HandleFunc("/api/user/new", h.NewUser).Methods("POST")
+	router.HandleFunc("/api/user/new/validate", h.NewValidate).Methods("POST")
 
-	router.HandleFunc("/api/user/password/reset", handlers.ResetPassword).Methods("POST")
-	router.HandleFunc("/api/user/password/validate", handlers.ValidatePassword).Methods("POST")
-	router.HandleFunc("/api/user/password/set", handlers.SetPassword).Methods("POST")
+	// Сброс пароля
+	router.HandleFunc("/api/user/password/reset", h.ResetPassword).Methods("POST")
+	router.HandleFunc("/api/user/password/validate", h.ValidatePassword).Methods("POST")
+	router.HandleFunc("/api/user/password/set", h.SetPassword).Methods("POST")
 
-	router.HandleFunc("/api/user/login", handlers.Authenticate).Methods("POST")
-	router.HandleFunc("/api/user/refresh", handlers.RefreshJWTToken).Methods("POST")
+	// Авторизация-обновление
+	router.HandleFunc("/api/user/login", h.Authenticate).Methods("POST")
+	router.HandleFunc("/api/user/refresh", h.JwtAuthentication(h.RefreshJWTToken)).Methods("POST")
 
-	router.HandleFunc("/api/user/set-tokens", handlers.SetTokens).Methods("POST")
-	router.HandleFunc("/api/user/get-tokens", handlers.GetTokens).Methods("POST")
+	// Работа с токенами
+	router.HandleFunc("/api/user/set-tokens", h.JwtAuthentication(h.SetTokens)).Methods("POST")
+	router.HandleFunc("/api/user/get-tokens", h.JwtAuthentication(h.GetTokens)).Methods("POST")
 
-	// Установка путей для которых не надо проверять токен
-	middleware.NotAuth = middleware.NotAuthRoutes{
-		Routes: []string{
-			"/api/user/new",
-			"/api/user/login",
-
-			// Для этих путей проверка токена осуществляется прямо в обработчике
-			"/api/user/new/validate",
-			"/api/user/password/reset",
-			"/api/user/password/validate",
-			"/api/user/password/set",
-		},
-	}
-	// Применяем "посредника", который проверяет токен перед работой основного обработчика
-	router.Use(middleware.JwtAuthentication)
-
-	//  Если в переменной среды не найдено "PORT", то приложенеие развернется на порту по-умолчанию
-	// port := os.Getenv("PORT")
-	// if port == "" {
-	// 	port = "8000" //localhost
-	// }
-
-	port := "8000" //localhost
-
-	// Использование глобальнго логгера
-	fmt.Println(port)
-
-	go console.StartUserInterface()
-
-	// Запуск сервера
-	err := http.ListenAndServe(":"+port, router)
-	// Т.к. сервер должен работать бесконечно, то ошибка будет признаком выключения программы.
+	// Загрузка файла .env
+	err := godotenv.Load()
 	if err != nil {
-		fmt.Println(err)
+		panic(err)
+	}
+
+	smtp.MailManager, err = smtp.NewSmtpManager()
+	if err != nil {
+		panic(err)
+	}
+
+	models.DataBaseManager, err = models.NewDBManager()
+	if err != nil {
+		panic(err)
+	}
+
+	port := os.Getenv("port")
+	if port == "" {
+		port = "8000"
+	}
+
+	host := os.Getenv("host")
+	if host == "" {
+		host = "localhost"
+	}
+
+	err = http.ListenAndServe(host+":"+port, router)
+	if err != nil {
+		panic(err)
 	}
 }

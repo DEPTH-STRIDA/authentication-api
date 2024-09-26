@@ -11,6 +11,10 @@ import (
 	"strings"
 )
 
+func main() {
+	StartUserInterface()
+}
+
 const baseURL = "http://localhost:8000"
 
 type ServerResponse struct {

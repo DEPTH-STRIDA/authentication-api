@@ -13,8 +13,6 @@ import (
 	"strconv"
 	"sync"
 	"time"
-
-	"github.com/joho/godotenv"
 )
 
 // Глобальная переменная для взаимодействия с другими пакетами
@@ -31,27 +29,33 @@ type SmtpManager struct {
 	cache     *Cache
 }
 
-// init запускается автоматически и иницилизирует smtp менеджео
-func init() {
-	// Загрузка файла .env
-	if err := godotenv.Load(); err != nil {
-		fmt.Println("Error loading .env file:", err)
-	}
-
+// NewSmtpManager получает файлы из окружения, создает откладыватель, запускает откладыватель, возвращает структуру SmtpManager
+func NewSmtpManager() (*SmtpManager, error) {
 	// Чтение переменных окружения
 	smtpMail := os.Getenv("smtp_mail")
+	if smtpMail == "" {
+		return nil, fmt.Errorf("smtp_mail is empty")
+	}
+
 	smtpPassword := os.Getenv("smtp_password")
+	if smtpPassword == "" {
+		return nil, fmt.Errorf("smtp_password is empty")
+	}
+
 	smtpHost := os.Getenv("smtp_host")
+	if smtpHost == "" {
+		return nil, fmt.Errorf("smtp_host is empty")
+	}
+
 	smtpPort, err := strconv.Atoi(os.Getenv("smtp_port"))
 	if err != nil {
-		fmt.Println("Error parsing SMTP port:", err)
-		smtpPort = 465 // default port
+		return nil, fmt.Errorf("error parsing SMTP port: %e", err)
 	}
 
 	// "Откладыватель"
 	requester, err := request.NewRequestHandler(100)
 	if err != nil {
-		fmt.Println("Error creating request handler:", err)
+		return nil, fmt.Errorf("error creating request handler: %e", err)
 	}
 
 	// Выполнение отложенных функций раз в 15 секунд без увеличения времени при burst
@@ -63,20 +67,23 @@ func init() {
 		smtpHost:     smtpHost,
 		smtpPort:     smtpPort,
 		requester:    requester,
-		cache:        NewCacheAccount(15*time.Minute, 15*time.Minute),
+		cache:        NewCache(15*time.Minute, 15*time.Minute),
 	}
+
+	return MailManager, nil
 }
 
 // ValidateEmail отправляет код на почту, заносит в кеш данные аккаунта. Возвращает токен.
 func (sm *SmtpManager) ValidateEmail(account models.Account) (string, error) {
-	rand.Seed(time.Now().UnixNano())
-	code := rand.Intn(100000)
+	source := rand.NewSource(time.Now().UnixNano())
+	r := rand.New(source)
+	code := r.Intn(100000)
 	key := fmt.Sprintf("%05d", code)
 
 	awaitingAccount := CachedAccount{
 		Account:      account,
 		Key:          key,
-		isAuthorized: false,
+		IsAuthorized: false,
 	}
 
 	// Отправляем отложенный запрос на регистрацию.
@@ -106,7 +113,7 @@ func (sm *SmtpManager) CheckKey(token, key string) (string, error) {
 	}
 
 	// Установка статуса (авторизация пройдена)
-	accountCached.isAuthorized = true
+	accountCached.IsAuthorized = true
 	sm.cache.Delete(token)
 
 	newToken := u.GenerateSecureToken(32)
@@ -126,7 +133,7 @@ func (sm *SmtpManager) CheckStatus(token string) (models.Account, bool) {
 	}
 
 	// Возврат, если ключ не тот
-	if accountCached.isAuthorized {
+	if accountCached.IsAuthorized {
 		return accountCached.Account, true
 	}
 
