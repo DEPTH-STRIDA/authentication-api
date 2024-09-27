@@ -107,6 +107,12 @@ func ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	_, err = models.GetUserViaEmail(baseHttpRequest.Account.Email)
+	if err != nil {
+		u.Respond(w, u.Message(false, err.Error()))
+		return
+	}
+
 	// Начать процесс восстановления почты
 	token, err := smtp.MailManager.ValidateEmail(baseHttpRequest.Account)
 	if err != nil {
@@ -198,7 +204,7 @@ func SetPassword(w http.ResponseWriter, r *http.Request) {
 	accountDB.Password = hashedPassword
 
 	// Обновление всех полей, кроме ID
-	err = models.UpdateAllFields(accountDB)
+	err = models.UpdateAllFieldsAccount(accountDB)
 	if err != nil {
 		fmt.Println(err)
 		resp := u.Message(false, "Internal error")

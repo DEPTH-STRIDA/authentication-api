@@ -92,6 +92,8 @@ func (sm *SmtpManager) ValidateEmail(account models.Account) (string, error) {
 		return nil
 	})
 
+	// fmt.Printf("Отправка кода %s на почту %s\n", account.Email, key)
+
 	// Добавляем в кеш данные
 	token := u.GenerateSecureToken(32)
 	sm.cache.Set(token, awaitingAccount)
@@ -147,7 +149,6 @@ func (sm *SmtpManager) Delete(token string) {
 ///////////////////////////////////////////////////////////////////////////////////////
 
 func (sm *SmtpManager) sendConfirmationEmail(awaitingAccount CachedAccount) error {
-	fmt.Println("Отправка сообщения подтверждения на почту: ", awaitingAccount.Account.Email)
 	subject := "Подтверждение регистрации на сайте biance service"
 	body := fmt.Sprintf("Ваш код подтверждения: %s", awaitingAccount.Key)
 

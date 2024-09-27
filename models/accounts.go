@@ -23,15 +23,26 @@ type Token struct {
 // Структура для миграции данных пользователя в БД
 type Account struct {
 	gorm.Model
-	Email     string `json:"email"`
-	Password  string `json:"password,omitempty"`
-	APIKey    string `json:"api_key,omitempty"`
-	SecretKey string `json:"secret_key,omitempty"`
-	Token     string `json:"token,omitempty"`
+	Email     string `json:"email" gorm:"column:email"`
+	Password  string `json:"password,omitempty" gorm:"column:password"`
+	APIKey    string `json:"api_key,omitempty" gorm:"-"`
+	SecretKey string `json:"secret_key,omitempty" gorm:"-"`
+	Token     string `json:"token,omitempty" gorm:"-"`
 }
 
 func (Account) TableName() string {
 	return "accounts"
+}
+
+type Keys struct {
+	gorm.Model
+	AccountID       uint   `gorm:"column:account_id"`
+	BianceApiKey    string `gorm:"column:biance_api_key"`
+	BianceSecretKey string `gorm:"column:biance_secret_key"`
+}
+
+func (Keys) TableName() string {
+	return "keys"
 }
 
 // Validate проверяет корректность пароля и почты, роверяет занята ли почта.
@@ -48,7 +59,6 @@ func (account *Account) Validate() error {
 	if err != nil {
 		return fmt.Errorf("invalid password: %s", err.Error())
 	}
-
 	temp := &Account{}
 
 	// Проверка на дубликаты почты
@@ -59,10 +69,11 @@ func (account *Account) Validate() error {
 		if strings.Contains(err.Error(), "record not found") {
 			return nil
 		}
+		fmt.Println("Ошибка БД")
 		// Другие ошибки
 		return fmt.Errorf("connection error. Please retry: %e", err)
 	}
-
+	// fmt.Println("Почта занята")
 	// Если err == nil, значит запись найдена
 	return fmt.Errorf("email address already in use by another user")
 }
@@ -210,7 +221,7 @@ func GetUserViaEmail(email string) (*Account, error) {
 }
 
 // UpdateAllFields обновляет все поля пользователя. Запись введется по ID
-func UpdateAllFields(updatedAccount *Account) error {
+func UpdateAllFieldsAccount(updatedAccount *Account) error {
 	// Получаем текущего пользователя из базы данных
 	existingAccount := &Account{}
 	err := DataBaseManager.db.First(existingAccount, updatedAccount.ID).Error
@@ -230,30 +241,51 @@ func UpdateAllFields(updatedAccount *Account) error {
 	return nil
 }
 
+func UpdateAllFieldsKeys(updatedAccount *Keys) error {
+	// Получаем текущего пользователя из базы данных
+	existingAccount := &Keys{}
+	err := DataBaseManager.db.First(existingAccount, updatedAccount.ID).Error
+	if err != nil {
+		if gorm.IsRecordNotFoundError(err) {
+			return fmt.Errorf("user not found : %v", err)
+		}
+		return fmt.Errorf("connection error. Please retry: %v", err)
+	}
+
+	// Обновляем все поля
+	err = DataBaseManager.db.Model(&Keys{}).Where("id = ?", updatedAccount.ID).Updates(updatedAccount).Error
+	if err != nil {
+		return fmt.Errorf("failed to update account. Please retry: %v", err)
+	}
+
+	return nil
+}
+
 // GetTokens Возвращает два токена. api key, secter key
 func GetTokens(userID uint) (apiKey string, SecretKey string, err error) {
 	// Получение аккаунта из БД по id
-	account, err := GetUser(userID)
-	if err != nil {
+	keys := &Keys{}
+	db := DataBaseManager.db.Table("keys").Where("id = ?", userID).First(keys)
+	if db.Error != nil {
 		return "", "", fmt.Errorf("user not found")
 	}
 
-	return account.APIKey, account.SecretKey, nil
+	return keys.BianceApiKey, keys.BianceApiKey, nil
 }
 
 func SetTokens(userID uint, apiKey, secretKey string) error {
 	// Получение пользователя из БД по id
-	account, err := GetUser(userID)
-	if err != nil {
+	keys := &Keys{}
+	db := DataBaseManager.db.Table("keys").Where("id = ?", userID).First(keys)
+	if db.Error != nil {
 		return fmt.Errorf("user not found")
 	}
 
-	// Установка в структуру новых токенов
-	account.SecretKey = secretKey
-	account.APIKey = apiKey
+	keys.BianceApiKey = apiKey
+	keys.BianceSecretKey = secretKey
 
 	// Обновление всех полей по id в БД
-	err = UpdateAllFields(account)
+	err := UpdateAllFieldsKeys(keys)
 	if err != nil {
 		return err
 	}

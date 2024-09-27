@@ -1,10 +1,11 @@
 CREATE TABLE IF NOT EXISTS accounts (
     id SERIAL PRIMARY KEY,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL,
+
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP WITH TIME ZONE,
-    email VARCHAR(255) NOT NULL UNIQUE,
-    password VARCHAR(255)
 );
 
 CREATE TABLE IF NOT EXISTS keys (
@@ -12,8 +13,27 @@ CREATE TABLE IF NOT EXISTS keys (
     account_id INTEGER,
     biance_api_key VARCHAR(255),
     biance_secret_key VARCHAR(255),
+
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP WITH TIME ZONE,
+
     FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE NO ACTION
 );
+
+CREATE OR REPLACE FUNCTION create_keys_entry()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO keys (account_id) VALUES (NEW.id);
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER create_keys_after_account
+AFTER INSERT ON accounts
+FOR EACH ROW
+EXECUTE FUNCTION create_keys_entry();
+
 
 -- Создаем индекс, если он еще не существует
 --CREATE INDEX IF NOT EXISTS idx_accounts_deleted_at ON accounts(deleted_at);
