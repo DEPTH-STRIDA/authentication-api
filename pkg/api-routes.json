@@ -27,13 +27,13 @@
     "description": "Подтверждение почты после регистрации.",
     "request": {
       "headers": {
-        "Authorization": "string."
+        "Authorization": "string"
       },
-      "тело-запроса": {
+      "body": {
         "account": {
-          "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+          "token": "string"
         },
-        "key": "8645293"
+        "key": "int"
       }
     },
     "response": {

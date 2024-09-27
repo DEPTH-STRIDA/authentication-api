@@ -4,11 +4,8 @@ import (
 	"app/models"
 	"app/smtp"
 	u "app/utils"
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -17,117 +14,88 @@ import (
 	"github.com/dgrijalva/jwt-go"
 )
 
-// Базовый запрос. Универсален для всех обработчиков.
-type BaseHttpRequest struct {
-	Account models.Account `json:"account"`
-	Key     string         `json:"key"`
-}
-
 // NewUser создание пользователя. Добавление почты в кеш, отправка сообщения, ожидание авторизации.
 func NewUser(w http.ResponseWriter, r *http.Request) {
-	log.Println("Начало выполнения NewUser")
-
-	// Читаем тело запроса
-	bodyBytes, err := io.ReadAll(r.Body)
-	if err != nil {
-		log.Printf("Ошибка чтения тела запроса: %v", err)
-		u.Respond(w, u.Message(false, "Invalid request"))
-		return
-	}
-
-	// Выводим тело запроса
-	log.Printf("Тело запроса: %s", string(bodyBytes))
-
-	// Восстанавливаем тело запроса
-	r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-
+	// Парсинг тела запроса
 	baseHttpRequest := &BaseHttpRequest{}
-	err = json.NewDecoder(r.Body).Decode(baseHttpRequest)
+	err := json.NewDecoder(r.Body).Decode(baseHttpRequest)
 	if err != nil {
-		log.Printf("Ошибка декодирования тела запроса: %v", err)
 		u.Respond(w, u.Message(false, "Invalid request"))
 		return
 	}
-	log.Printf("Полученный запрос: %+v", baseHttpRequest)
 
 	// Проверка логина/пароля перед процессом создания
-
-	if resp, ok := baseHttpRequest.Account.Validate(); !ok {
-		log.Printf("Ошибка валидации аккаунта: %v", resp)
+	if err := baseHttpRequest.Account.Validate(); err != nil {
 		u.Respond(w, u.Message(false, "Invalid login credentials. Please try again"))
 		return
 	}
-	log.Println("Валидация аккаунта прошла успешно")
-	fmt.Println("Данные токорые отправляются в функцию ValidateEmail: ", baseHttpRequest)
-	token, err := smtp.MailManager.ValidateEmail(baseHttpRequest.Account)
 
+	// Отправка кода на почту/добавление в кеш
+	token, err := smtp.MailManager.ValidateEmail(baseHttpRequest.Account)
+	if err != nil {
+		u.Respond(w, u.Message(false, "Internal error"))
+		return
+	}
+
+	// Создаем структуру для ответа
 	resp := u.Message(true, "The account has been successfully added for verification")
 	if err != nil {
 		u.Respond(w, u.Message(false, "Invalid login credentials. Please try again"))
 		return
 	}
+	// Добавление в ответ "пользователя" с токеном
+	resp["account"] = models.Account{Token: token}
 
-	baseHttpRequest.Account.Token = token
-	baseHttpRequest.Account.Email = ""
-	baseHttpRequest.Account.Password = ""
-	resp["account"] = baseHttpRequest.Account
-	log.Printf("Отправляемый ответ: %+v", resp)
 	u.Respond(w, resp)
 }
 
+// NewValidate проверяет аккаунт и создает его, если ключ и токен верные.
 func NewValidate(w http.ResponseWriter, r *http.Request) {
-	log.Println("Начало выполнения NewValidate")
+	// Извлеченеи токена
+	token, ok := r.Context().Value(TokenCtx).(string)
+	if !ok || token == "" {
+		u.Respond(w, u.Message(false, "Internal error: Invalid user identification"))
+		return
+	}
 
+	// Парсинг тела запроса
 	baseHttpRequest := &BaseHttpRequest{}
 	err := json.NewDecoder(r.Body).Decode(baseHttpRequest)
 	if err != nil {
-		log.Printf("Ошибка декодирования тела запроса: %v", err)
-		u.Respond(w, u.Message(false, "Invalid request"))
+		u.Respond(w, u.Message(false, "Invalid request: invalid body"))
 		return
 	}
-	log.Printf("Полученный запрос: %+v", baseHttpRequest)
 
-	token, err := u.ExtractToken(r, "Authorization")
-	if err != nil {
-		log.Printf("Ошибка получения токена из заголовка: %v", err)
-		u.Respond(w, u.Message(false, "Invalid request"))
-		return
-	}
-	log.Printf("Полученный токен: %s", token)
+	// Извлечение токена
 
+	// Замена токена в случае правильного ключа
 	newToken, err := smtp.MailManager.CheckKey(token, baseHttpRequest.Key)
 	if err != nil {
-		log.Printf("Ошибка проверки ключа: %v", err)
-		u.Respond(w, u.Message(false, "Invalid request"))
+		u.Respond(w, u.Message(false, err.Error()))
 		return
 	}
 
+	// Возврат авторизованного аккаунта
 	newAccount, ok := smtp.MailManager.CheckStatus(newToken)
 	if !ok {
-		log.Printf("Ошибка проверки ключа: %v", err)
 		u.Respond(w, u.Message(false, "Invalid request"))
 		return
 	}
 
-	log.Printf("Проверка ключа успешна, аккаунт: %+v", baseHttpRequest)
-
-	resp := newAccount.Create()
-	if !resp["status"].(bool) {
-		log.Printf("Ошибка создания аккаунта: %v", resp["message"])
-		u.Respond(w, resp)
+	// Создание аккаунта в БД
+	_, err = newAccount.Create()
+	if err != nil {
 		return
 	}
 
+	// Если нет ошибок в БД, то удаляем из кеша
 	smtp.MailManager.Delete(token)
-	log.Println("Пользователь удален из кэша")
-
-	log.Println("Аккаунт успешно создан в базе данных")
 
 	u.Respond(w, u.Message(true, "The account has been successfully created"))
 }
 
 func ResetPassword(w http.ResponseWriter, r *http.Request) {
-	// Получение данных аккаунта из тела
+	// Парсинг тела запроса
 	baseHttpRequest := &BaseHttpRequest{}
 	err := json.NewDecoder(r.Body).Decode(baseHttpRequest)
 	if err != nil {
@@ -136,37 +104,38 @@ func ResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Проверка электронной почты
-	isValid, _ := u.ValidateEmail(baseHttpRequest.Account.Email)
-	if !isValid {
-		u.Respond(w, u.Message(false, "Invalid request"))
+	err = u.ValidateEmail(baseHttpRequest.Account.Email)
+	if err != nil {
+		u.Respond(w, u.Message(false, err.Error()))
 		return
 	}
 
 	// Начать процесс восстановления почты
 	token, err := smtp.MailManager.ValidateEmail(baseHttpRequest.Account)
 	if err != nil {
-		u.Respond(w, u.Message(false, "Invalid request"))
+		u.Respond(w, u.Message(false, err.Error()))
 		return
 	}
-	baseHttpRequest.Account.Token = token
-	// Создание мапы
+
+	// Создание ответной структуры
 	resp := u.Message(true, "The account has been successfully added for verification")
-	// Добавление аккаунта
-	resp["account"] = baseHttpRequest.Account
+
+	// Добавление в ответ "пользователя" с токеном
+	resp["account"] = models.Account{Token: token}
+
 	u.Respond(w, resp)
 }
 
 func ValidatePassword(w http.ResponseWriter, r *http.Request) {
+	// Извлеченеи токена
+	token, ok := r.Context().Value(TokenCtx).(string)
+	if !ok || token == "" {
+		u.Respond(w, u.Message(false, "Internal error: Invalid user identification"))
+		return
+	}
 	// Получение данных аккаунта из тела
 	baseHttpRequest := &BaseHttpRequest{}
 	err := json.NewDecoder(r.Body).Decode(baseHttpRequest)
-	if err != nil {
-		log.Printf("Error decoding request body: %v", err)
-		u.Respond(w, u.Message(false, "Invalid request"))
-		return
-	}
-
-	token, err := u.ExtractToken(r, "Validation")
 	if err != nil {
 		u.Respond(w, u.Message(false, "Invalid request"))
 		return
@@ -179,53 +148,59 @@ func ValidatePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	baseHttpRequest.Account.Token = newToken
-
-	// Создание мапы
+	// Создание ответной структуры
 	resp := u.Message(true, "The account has been successfully update")
-	resp["account"] = baseHttpRequest.Account
+	// Добавление пользователя с новым токеном
+	resp["account"] = models.Account{Token: newToken}
+
 	u.Respond(w, resp)
 }
 
 func SetPassword(w http.ResponseWriter, r *http.Request) {
+	// Извлеченеи токена
+	token, ok := r.Context().Value(TokenCtx).(string)
+	if !ok || token == "" {
+		u.Respond(w, u.Message(false, "Internal error: Invalid user identification"))
+		return
+	}
 	// Получение данных аккаунта из тела
 	baseHttpRequest := &BaseHttpRequest{}
 	err := json.NewDecoder(r.Body).Decode(baseHttpRequest)
 	if err != nil {
-		log.Printf("Error decoding request body: %v", err)
 		u.Respond(w, u.Message(false, "Invalid request"))
 		return
 	}
 
-	token, err := u.ExtractToken(r, "Validation")
+	err = u.ValidatePassword(baseHttpRequest.Account.Password)
 	if err != nil {
-		u.Respond(w, u.Message(false, "Invalid request"))
+		u.Respond(w, u.Message(false, "Invalid password"))
 		return
 	}
 
+	// Проверка статуса аккунта
 	account, ok := smtp.MailManager.CheckStatus(token)
 	if !ok {
 		u.Respond(w, u.Message(false, "Invalid request"))
 		return
 	}
 
-	accountDB := models.GetUserViaEmail(account.Email)
-	if accountDB == nil {
+	// Получение аккаунт из БД по почте
+	accountDB, err := models.GetUserViaEmail(account.Email)
+	if err != nil {
 		u.Respond(w, u.Message(false, "Invalid request"))
 		return
 	}
 
-	fmt.Println("Получен старый аккаунт из БД: ", baseHttpRequest.Account.Password)
-
-	fmt.Println("Пароль заменен на: ", baseHttpRequest.Account.Password)
-	hashedPassword := models.HashedPassword(baseHttpRequest.Account.Password)
-	if hashedPassword == "" {
-		log.Printf("Не удалось хешировать пароль.")
+	// Хеширование пароля
+	hashedPassword, err := models.HashString(baseHttpRequest.Account.Password)
+	if err != nil {
+		u.Respond(w, u.Message(false, "Internal error"))
 		return
 	}
+	// Установка нового хеша пароля
 	accountDB.Password = hashedPassword
-	fmt.Println("Пароль заменен на: ", accountDB)
 
+	// Обновление всех полей, кроме ID
 	err = models.UpdateAllFields(accountDB)
 	if err != nil {
 		fmt.Println(err)
@@ -235,61 +210,45 @@ func SetPassword(w http.ResponseWriter, r *http.Request) {
 
 	// Создание мапы
 	resp := u.Message(true, "The account has been successfully created")
+
 	u.Respond(w, resp)
 }
 
 // Authenticate авторизация на сайте
-func Authenticate(w http.ResponseWriter, r *http.Request) {
+func Login(w http.ResponseWriter, r *http.Request) {
 	baseHttpRequest := &BaseHttpRequest{}
 	err := json.NewDecoder(r.Body).Decode(baseHttpRequest)
 	if err != nil {
-		log.Printf("Error decoding request body: %v", err)
 		u.Respond(w, u.Message(false, "Invalid request"))
 		return
 	}
 
-	resp := models.Login(baseHttpRequest.Account.Email, baseHttpRequest.Account.Password)
+	token, err := models.Login(baseHttpRequest.Account.Email, baseHttpRequest.Account.Password)
+	if err != nil {
+		u.Respond(w, u.Message(false, err.Error()))
+		return
+	}
+
+	// Осздание ответной структуры
+	resp := u.Message(true, "Succes")
+	// Занесение аккаунта с токенов в структуру
+	resp["account"] = models.Account{Token: token}
 
 	u.Respond(w, resp)
 }
 
 // RefreshJWTToken генерирует новый рабочий JWT токен
 func RefreshJWTToken(w http.ResponseWriter, r *http.Request) {
-	// Извлечение токена из заголовка
-	tokenHeader := r.Header.Get("Authorization")
-	// Режим токен на части
-	splitted := strings.Split(tokenHeader, " ")
-	// Получиться должно 2 части
-	if len(splitted) != 2 {
-		u.Respond(w, u.Message(false, "Invalid request"))
+	// Извлечение ID из контекста
+	userID, ok := r.Context().Value(UserIDCtx).(uint)
+	if !ok || userID == 0 {
+		u.Respond(w, u.Message(false, "Invalid request format"))
 		return
-	}
-	// Берем 2 (по порядку) часть
-	tokenPart := splitted[1]
-
-	// Подготавливаем структуру токена
-	tk := &models.Token{}
-	// Парсинг токена с помощью ключа из env
-	_, err := jwt.ParseWithClaims(tokenPart, tk, func(token *jwt.Token) (interface{}, error) {
-		return []byte(os.Getenv("token_password")), nil
-	})
-	if err != nil {
-		log.Printf("Error parsing token: %v", err)
-		u.Respond(w, u.Message(false, "Invalid request"))
-		return
-	}
-
-	// Получаем сколько времени осталось, до истечения ключа
-	timeUntilExpiration := time.Until(time.Unix(tk.ExpiresAt, 0))
-
-	// Если до истечения срока больше 5 минут или токен истек, то ошибка
-	if timeUntilExpiration > 5*time.Minute || timeUntilExpiration < 0 {
-		u.Respond(w, u.Message(false, "Invalid request"))
 	}
 
 	// Генерация нового токена
 	newToken := models.Token{
-		UserId: tk.UserId,
+		UserId: userID,
 		StandardClaims: jwt.StandardClaims{
 			ExpiresAt: time.Now().Add(15 * time.Minute).Unix(),
 		},
@@ -298,98 +257,76 @@ func RefreshJWTToken(w http.ResponseWriter, r *http.Request) {
 	//Шифррование и подпись токена
 	tokenString, err := jwt.NewWithClaims(jwt.SigningMethodHS256, newToken).SignedString([]byte(os.Getenv("token_password")))
 	if err != nil {
-		log.Printf("Error creating new token: %v", err)
 		u.Respond(w, u.Message(false, "Internal error"))
 		return
 	}
 
+	// Создание ответной структуры
 	resp := u.Message(true, "tokens have been successfully updated")
-	account := models.Account{
-		Token: tokenString,
-	}
-	resp["account"] = account
+
+	// Добавление аккаунта с токеном в ответную структуру
+	resp["account"] = models.Account{Token: tokenString}
+
 	u.Respond(w, resp)
 }
 
 // GetTokens устанавливает токены для определенного пользователя
 func SetTokens(w http.ResponseWriter, r *http.Request) {
-	log.Println("Начало выполнения SetTokens")
-
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		log.Printf("Ошибка чтения тела запроса: %v", err)
-		u.Respond(w, u.Message(false, "Error reading request"))
-		return
-	}
-	log.Printf("Тело запроса: %s", string(body))
-
-	r.Body = io.NopCloser(bytes.NewBuffer(body))
-
-	baseHttpRequest := BaseHttpRequest{}
-	err = json.NewDecoder(r.Body).Decode(&baseHttpRequest)
-	if err != nil {
-		log.Printf("Ошибка декодирования тела запроса: %v", err)
+	// Извлечение ID из контекста
+	userID, ok := r.Context().Value(UserIDCtx).(uint)
+	if !ok || userID == 0 {
 		u.Respond(w, u.Message(false, "Invalid request format"))
 		return
 	}
-	log.Printf("Декодированный запрос: %+v", baseHttpRequest)
 
+	// Получение данных аккаунта из тела
+	baseHttpRequest := &BaseHttpRequest{}
+	err := json.NewDecoder(r.Body).Decode(baseHttpRequest)
+	if err != nil {
+		u.Respond(w, u.Message(false, "Invalid request"))
+		return
+	}
+	// Проверка ключей
 	if strings.TrimSpace(baseHttpRequest.Account.SecretKey) == "" || strings.TrimSpace(baseHttpRequest.Account.APIKey) == "" {
-		log.Println("Пустой SecretKey или APIKey")
 		u.Respond(w, u.Message(false, "Invalid request: SecretKey or APIKey is empty"))
 		return
 	}
 
+	// Получение подписи токенов
 	hashPassword := os.Getenv("hash_password")
 	if hashPassword == "" {
-		log.Println("Отсутствует переменная окружения hash_password")
 		u.Respond(w, u.Message(false, "Internal error"))
 		return
 	}
 
+	// Шифрование токенов
 	secretKey, err := u.EncryptToken(baseHttpRequest.Account.SecretKey, hashPassword)
 	if err != nil {
-		log.Printf("Ошибка шифрования SecretKey: %v", err)
 		u.Respond(w, u.Message(false, "Internal error"))
 		return
 	}
-	log.Println("SecretKey успешно зашифрован")
-
 	apiKey, err := u.EncryptToken(baseHttpRequest.Account.APIKey, hashPassword)
 	if err != nil {
-		log.Printf("Ошибка шифрования APIKey: %v", err)
 		u.Respond(w, u.Message(false, "Internal error"))
 		return
 	}
-	log.Println("APIKey успешно зашифрован")
 
-	userID, ok := r.Context().Value("user").(uint)
-	if !ok || userID == 0 {
-		log.Printf("Некорректный userID в контексте: %v", userID)
-		u.Respond(w, u.Message(false, "Invalid request format"))
-		return
-	}
-	log.Printf("UserID из контекста: %d", userID)
-
+	// Установка токенов в БД
 	err = models.SetTokens(userID, apiKey, secretKey)
 	if err != nil {
-		log.Printf("Ошибка установки токенов: %v", err)
 		u.Respond(w, u.Message(false, "Invalid request format"))
 		return
 	}
-	log.Println("Токены успешно установлены")
 
 	resp := u.Message(true, "Tokens have been successfully installed")
-	log.Printf("Отправляемый ответ: %+v", resp)
 	u.Respond(w, resp)
 }
 
 // GetTokens возвращает biance токены пользователя.
 func GetTokens(w http.ResponseWriter, r *http.Request) {
 	// Получение id пользователя из контеста. Контекст установлен в запрос ранее на этапе валидации токена.
-	userID, ok := r.Context().Value("user").(uint)
+	userID, ok := r.Context().Value(UserIDCtx).(uint)
 	if !ok || userID == 0 {
-		log.Printf("Error: Invalid userID in context: %v", userID)
 		u.Respond(w, u.Message(false, "Internal error: Invalid user identification"))
 		return
 	}
@@ -400,14 +337,11 @@ func GetTokens(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Создание мапы
+	// Создание ответной структуры
 	resp := u.Message(true, "tokens have been successfully received")
 
-	// Добавление в мапу пользователя
-	resp["account"] = models.Account{
-		APIKey:    apiKey,
-		SecretKey: secretKey,
-	}
-	// Добавление в тело ответа json
+	// Добавление в ответную структуру пользователя с ключами
+	resp["account"] = models.Account{APIKey: apiKey, SecretKey: secretKey}
+
 	u.Respond(w, resp)
 }

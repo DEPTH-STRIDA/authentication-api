@@ -118,8 +118,6 @@ func (sm *SmtpManager) CheckKey(token, key string) (string, error) {
 
 	newToken := u.GenerateSecureToken(32)
 	sm.cache.Set(newToken, accountCached)
-	// Обновление данных в кеше
-	sm.cache.Set(token, accountCached)
 
 	return newToken, nil
 }
@@ -132,7 +130,7 @@ func (sm *SmtpManager) CheckStatus(token string) (models.Account, bool) {
 		return models.Account{}, false
 	}
 
-	// Возврат, если ключ не тот
+	// Возврат, если аккаунт авторизован
 	if accountCached.IsAuthorized {
 		return accountCached.Account, true
 	}

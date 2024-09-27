@@ -16,15 +16,15 @@ func main() {
 
 	// Новый аккаунт
 	router.HandleFunc("/api/user/new", h.NewUser).Methods("POST")
-	router.HandleFunc("/api/user/new/validate", h.NewValidate).Methods("POST")
+	router.HandleFunc("/api/user/new/validate", h.TokenValidation(h.NewValidate)).Methods("POST")
 
 	// Сброс пароля
 	router.HandleFunc("/api/user/password/reset", h.ResetPassword).Methods("POST")
-	router.HandleFunc("/api/user/password/validate", h.ValidatePassword).Methods("POST")
-	router.HandleFunc("/api/user/password/set", h.SetPassword).Methods("POST")
+	router.HandleFunc("/api/user/password/validate", h.TokenValidation(h.ValidatePassword)).Methods("POST")
+	router.HandleFunc("/api/user/password/set", h.TokenValidation(h.SetPassword)).Methods("POST")
 
 	// Авторизация-обновление
-	router.HandleFunc("/api/user/login", h.Authenticate).Methods("POST")
+	router.HandleFunc("/api/user/login", h.Login).Methods("POST")
 	router.HandleFunc("/api/user/refresh", h.JwtAuthentication(h.RefreshJWTToken)).Methods("POST")
 
 	// Работа с токенами

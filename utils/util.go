@@ -22,7 +22,7 @@ func Respond(w http.ResponseWriter, data map[string]interface{}) {
 }
 
 // ValidateEmail проверяет корректность адреса электронной почты
-func ValidateEmail(email string) (bool, string) {
+func ValidateEmail(email string) error {
 
 	// // Регулярное выражение для проверки формата email
 	// // ^                   - начало строки
@@ -36,27 +36,27 @@ func ValidateEmail(email string) (bool, string) {
 
 	// Проверяем, соответствует ли email заданному регулярному выражению
 	if !emailRegex.MatchString(email) {
-		return false, "Invalid email format"
+		return fmt.Errorf("invalid email format")
 	}
 
 	// Проверяем длину email (максимум 254 символа согласно RFC 5321)
 	if len(email) > 254 {
-		return false, "Email is too long"
+		return fmt.Errorf("email is too long")
 	}
 
-	return true, ""
+	return nil
 }
 
-// ValidatePassword проверяет надежность пароля
-func ValidatePassword(password string) (bool, string) {
+// ValidatePassword проверяет надежность пароля. Возвращает статус и ошибку в случае неудачи
+func ValidatePassword(password string) error {
 	// Проверяем минимальную длину пароля (6 символов)
 	if len(password) < 6 {
-		return false, "Password must be at least 6 characters long"
+		return fmt.Errorf("password must be at least 6 characters long")
 	}
 
 	// Проверяем максимальную длину пароля (128 символов)
 	if len(password) > 128 {
-		return false, "Password is too long"
+		return fmt.Errorf("password is too long")
 	}
 
 	// Флаги для проверки наличия различных типов символов в пароле
@@ -78,10 +78,10 @@ func ValidatePassword(password string) (bool, string) {
 
 	// Проверяем, содержит ли пароль все необходимые типы символов
 	if !hasUpper || !hasLower || !hasNumber || !hasSpecial {
-		return false, "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character"
+		return fmt.Errorf("password must contain at least one uppercase letter, one lowercase letter, one number, and one special character")
 	}
 
-	return true, ""
+	return nil
 }
 
 // ExtractToken извлекает токен из заголовка запроса.

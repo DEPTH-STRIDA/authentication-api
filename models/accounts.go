@@ -38,21 +38,21 @@ func (Account) TableName() string {
 func (account *Account) Validate() error {
 
 	// Проверка электронной почты
-	isValid, msg := u.ValidateEmail(account.Email)
-	if !isValid {
-		return fmt.Errorf("invalid email: %s", msg)
+	err := u.ValidateEmail(account.Email)
+	if err != nil {
+		return fmt.Errorf("invalid email: %s", err.Error())
 	}
 
 	// Проверка пароля
-	isValid, msg = u.ValidatePassword(account.Password)
-	if !isValid {
-		return fmt.Errorf("invalid password: %s", msg)
+	err = u.ValidatePassword(account.Password)
+	if err != nil {
+		return fmt.Errorf("invalid password: %s", err.Error())
 	}
 
 	temp := &Account{}
 
 	// Проверка на дубликаты почты
-	err := DataBaseManager.db.Table("accounts").Where("email = ?", account.Email).First(temp).Error
+	err = DataBaseManager.db.Table("accounts").Where("email = ?", account.Email).First(temp).Error
 	// Проверка на ошибку при запросе БД
 	if err != nil {
 		// Если получена ошибка отсутствия такой почты в БД, то отлично
@@ -64,10 +64,10 @@ func (account *Account) Validate() error {
 	}
 
 	// Если err == nil, значит запись найдена
-	return fmt.Errorf("email address already in use by another user.")
+	return fmt.Errorf("email address already in use by another user")
 }
 
-// Create создает аккаунт в БД и возвращает map'у с пользователем и токеном.
+// Create создает аккаунт в БД и возвращает токен пользователя и ошибку
 func (account *Account) Create() (string, error) {
 
 	if err := account.Validate(); err != nil {
@@ -79,18 +79,13 @@ func (account *Account) Create() (string, error) {
 		return "", err
 	}
 
-	hashedEmail, err := HashString(account.Password)
-	if err != nil {
-		return "", err
-	}
-
 	// Установка пароля в поле структуры
 	account.Password = string(hashedPassword)
 
 	// Создание в БД аккаунта с таким паролем.
 	result := DataBaseManager.db.Create(account)
 	if result.Error != nil {
-		return "", fmt.Errorf("failed to create account, database error: ", result.Error)
+		return "", fmt.Errorf("failed to create account, database error: %s", result.Error)
 	}
 
 	// Создание временной метки истечения срока жизни токена ("истекает в")
@@ -147,7 +142,7 @@ func (account *Account) CreateJWTToken() (string, error) {
 	return tokenString, nil
 }
 
-// Login выполняет авторизацию пользователя
+// Login выполняет авторизацию пользователя. Возвращает токен и ошибку в случае неудачи.
 func Login(email, password string) (string, error) {
 	// Создание сруктуру для последующего извлечения и поиска в БД
 	account := &Account{}
@@ -156,10 +151,10 @@ func Login(email, password string) (string, error) {
 	if err != nil {
 		// Если аккаунт не найден.
 		if err == gorm.ErrRecordNotFound {
-			return u.Message(false, "Invalid login credentials. Please try again") // Кидаем ошибку авторизации без пояснения в чем ошибка.
+			return "", fmt.Errorf("invalid login credentials. Please try again")
 		}
 		// Другая ошибка БД
-		return u.Message(false, "Connection error. Please retry")
+		return "", fmt.Errorf("connection error. Please retry")
 	}
 
 	// Хеширования пароля для проверки хешей пароля, полученногоиз бд, и пароля из БД
@@ -167,7 +162,7 @@ func Login(email, password string) (string, error) {
 
 	// Пароль не подходит.
 	if err != nil && err == bcrypt.ErrMismatchedHashAndPassword {
-		return u.Message(false, "Invalid login credentials. Please try again") // Кидаем ошибку авторизации без пояснения в чем ошибка.
+		return "", fmt.Errorf("invalid login credentials. Please try again")
 	}
 	// Пароль сработал, но его надо удалить из структуры, она будет передоваться дальше
 	account.Password = ""
@@ -187,44 +182,38 @@ func Login(email, password string) (string, error) {
 	// Подпись токена
 	tokenString, _ := token.SignedString([]byte(os.Getenv("token_password")))
 
-	account.Token = tokenString
-
-	resp := u.Message(true, "Logged In")
-	resp["account"] = account
-	return resp
+	return tokenString, nil
 }
 
 // GetUser возвращает пользователя из БД по ID
-func GetUser(u uint) *Account {
+func GetUser(u uint) (*Account, error) {
 
 	acc := &Account{}
-	GetDB().Table("accounts").Where("id = ?", u).First(acc)
-	if acc.Email == "" { //User not found!
-		return nil
+	db := DataBaseManager.db.Table("accounts").Where("id = ?", u).First(acc)
+	if db.Error != nil || acc.Email == "" {
+		return nil, fmt.Errorf("user not found")
 	}
 
-	acc.Password = ""
-	return acc
+	return acc, nil
 }
 
 // GetUser возвращает пользователя из БД по почте
-func GetUserViaEmail(email string) *Account {
+func GetUserViaEmail(email string) (*Account, error) {
 
 	acc := &Account{}
-	GetDB().Table("accounts").Where("email = ?", email).First(acc)
-	if acc.Email == "" { //User not found!
-		return nil
+	db := DataBaseManager.db.Table("accounts").Where("email = ?", email).First(acc)
+	if db.Error != nil || acc.Email == "" {
+		return nil, fmt.Errorf("user not found")
 	}
 
-	acc.Password = ""
-	return acc
+	return acc, nil
 }
 
-// UpdateAllFields обновляет все поля пользователя
+// UpdateAllFields обновляет все поля пользователя. Запись введется по ID
 func UpdateAllFields(updatedAccount *Account) error {
 	// Получаем текущего пользователя из базы данных
 	existingAccount := &Account{}
-	err := GetDB().First(existingAccount, updatedAccount.ID).Error
+	err := DataBaseManager.db.First(existingAccount, updatedAccount.ID).Error
 	if err != nil {
 		if gorm.IsRecordNotFoundError(err) {
 			return fmt.Errorf("user not found : %v", err)
@@ -233,7 +222,7 @@ func UpdateAllFields(updatedAccount *Account) error {
 	}
 
 	// Обновляем все поля
-	err = GetDB().Model(&Account{}).Where("id = ?", updatedAccount.ID).Updates(updatedAccount).Error
+	err = DataBaseManager.db.Model(&Account{}).Where("id = ?", updatedAccount.ID).Updates(updatedAccount).Error
 	if err != nil {
 		return fmt.Errorf("failed to update account. Please retry: %v", err)
 	}
@@ -244,8 +233,8 @@ func UpdateAllFields(updatedAccount *Account) error {
 // GetTokens Возвращает два токена. api key, secter key
 func GetTokens(userID uint) (apiKey string, SecretKey string, err error) {
 	// Получение аккаунта из БД по id
-	account := GetUser(userID)
-	if account == nil {
+	account, err := GetUser(userID)
+	if err != nil {
 		return "", "", fmt.Errorf("user not found")
 	}
 
@@ -254,8 +243,8 @@ func GetTokens(userID uint) (apiKey string, SecretKey string, err error) {
 
 func SetTokens(userID uint, apiKey, secretKey string) error {
 	// Получение пользователя из БД по id
-	account := GetUser(userID)
-	if account == nil {
+	account, err := GetUser(userID)
+	if err != nil {
 		return fmt.Errorf("user not found")
 	}
 
@@ -264,7 +253,7 @@ func SetTokens(userID uint, apiKey, secretKey string) error {
 	account.APIKey = apiKey
 
 	// Обновление всех полей по id в БД
-	err := UpdateAllFields(account)
+	err = UpdateAllFields(account)
 	if err != nil {
 		return err
 	}

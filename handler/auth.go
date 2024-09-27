@@ -3,6 +3,7 @@ package handler
 import (
 	"app/models"
 	"app/utils"
+	u "app/utils"
 	"context"
 	"fmt"
 	"net/http"
@@ -11,7 +12,31 @@ import (
 	"github.com/dgrijalva/jwt-go"
 )
 
-// JwtAuthentication создает middleware для проверки JWT токена
+const (
+	UserIDCtx string = "user_id"
+	TokenCtx  string = "validation_token"
+)
+
+// TokenValidation проверяет наличие и правильность токена из заголовка с подписью "Validation"
+func TokenValidation(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Извлечение токена
+		token, err := u.ExtractToken(r, "Validation")
+		if err != nil {
+			u.Respond(w, u.Message(false, "Invalid request"))
+			return
+		}
+
+		// Добавляем
+		ctx := context.WithValue(r.Context(), TokenCtx, token)
+		r = r.WithContext(ctx)
+
+		// Вызываем следующий обработчик с обновленным запросом
+		next.ServeHTTP(w, r)
+	}
+}
+
+// JwtAuthentication проверяет JWT токен. Вытаскивает из заголовка токен, сверяет подпись, временную метку.
 func JwtAuthentication(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token, err := utils.ExtractToken(r, "Authorization")
@@ -27,7 +52,7 @@ func JwtAuthentication(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		// Добавляем ID пользователя в контекст запроса
-		ctx := context.WithValue(r.Context(), "user_id", claims.UserId)
+		ctx := context.WithValue(r.Context(), UserIDCtx, claims.UserId)
 		r = r.WithContext(ctx)
 
 		// Вызываем следующий обработчик с обновленным запросом
