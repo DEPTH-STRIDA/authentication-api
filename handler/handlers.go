@@ -26,7 +26,7 @@ func NewUser(w http.ResponseWriter, r *http.Request) {
 
 	// Проверка логина/пароля перед процессом создания
 	if err := baseHttpRequest.Account.Validate(); err != nil {
-		u.Respond(w, u.Message(false, "Invalid login credentials. Please try again"))
+		u.Respond(w, u.Message(false, err.Error()))
 		return
 	}
 
