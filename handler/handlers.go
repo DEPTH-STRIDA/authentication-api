@@ -39,10 +39,7 @@ func NewUser(w http.ResponseWriter, r *http.Request) {
 
 	// Создаем структуру для ответа
 	resp := u.Message(true, "The account has been successfully added for verification")
-	if err != nil {
-		u.Respond(w, u.Message(false, "Invalid login credentials. Please try again"))
-		return
-	}
+
 	// Добавление в ответ "пользователя" с токеном
 	resp["account"] = models.Account{Token: token}
 

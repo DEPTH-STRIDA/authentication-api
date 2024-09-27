@@ -12,9 +12,11 @@ import (
 	"github.com/dgrijalva/jwt-go"
 )
 
+type contextKey string
+
 const (
-	UserIDCtx string = "user_id"
-	TokenCtx  string = "validation_token"
+	UserIDCtx contextKey = "user_id"
+	TokenCtx  contextKey = "validation_token"
 )
 
 // TokenValidation проверяет наличие и правильность токена из заголовка с подписью "Validation"
