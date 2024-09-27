@@ -2,7 +2,6 @@ package handler
 
 import (
 	"app/models"
-	"app/utils"
 	u "app/utils"
 	"context"
 	"fmt"
@@ -41,7 +40,7 @@ func TokenValidation(next http.HandlerFunc) http.HandlerFunc {
 // JwtAuthentication проверяет JWT токен. Вытаскивает из заголовка токен, сверяет подпись, временную метку.
 func JwtAuthentication(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token, err := utils.ExtractToken(r, "Authorization")
+		token, err := u.ExtractToken(r, "Authorization")
 		if err != nil {
 			http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 			return

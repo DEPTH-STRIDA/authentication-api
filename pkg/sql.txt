@@ -1,0 +1,19 @@
+CREATE TABLE IF NOT EXISTS accounts (
+    id SERIAL PRIMARY KEY,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP WITH TIME ZONE,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password VARCHAR(255)
+);
+
+CREATE TABLE IF NOT EXISTS keys (
+    id SERIAL PRIMARY KEY,
+    account_id INTEGER,
+    biance_api_key VARCHAR(255),
+    biance_secret_key VARCHAR(255),
+    FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE NO ACTION
+);
+
+-- Создаем индекс, если он еще не существует
+--CREATE INDEX IF NOT EXISTS idx_accounts_deleted_at ON accounts(deleted_at);
