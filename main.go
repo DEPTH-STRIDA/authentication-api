@@ -31,6 +31,9 @@ func main() {
 	router.HandleFunc("/api/user/set-tokens", h.JwtAuthentication(h.SetTokens)).Methods("POST")
 	router.HandleFunc("/api/user/get-tokens", h.JwtAuthentication(h.GetTokens)).Methods("POST")
 
+	// Временное
+	router.HandleFunc("/api/internal/get-user-id", h.JwtAuthentication(h.GetUserId)).Methods("POST")
+
 	// Загрузка файла .env
 	err := godotenv.Load()
 	if err != nil {

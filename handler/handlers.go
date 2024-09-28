@@ -348,3 +348,21 @@ func GetTokens(w http.ResponseWriter, r *http.Request) {
 
 	u.Respond(w, resp)
 }
+
+// GetTokens возвращает biance токены пользователя.
+func GetUserId(w http.ResponseWriter, r *http.Request) {
+	// Получение id пользователя из контеста. Контекст установлен в запрос ранее на этапе валидации токена.
+	userID, ok := r.Context().Value(UserIDCtx).(uint)
+	if !ok || userID == 0 {
+		u.Respond(w, u.Message(false, "Internal error: Invalid user identification"))
+		return
+	}
+
+	// Создание ответной структуры
+	resp := u.Message(true, "tokens have been successfully received")
+
+	// Добавление в ответную структуру пользователя с ключами
+	resp["id"] = userID
+
+	u.Respond(w, resp)
+}

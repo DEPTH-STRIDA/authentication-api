@@ -27,7 +27,7 @@
     "description": "Подтверждение почты после регистрации.",
     "request": {
       "headers": {
-        "Authorization": "string"
+        "Validation": "string"
       },
       "body": {
         "key": "int"

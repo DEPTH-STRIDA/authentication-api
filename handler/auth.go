@@ -24,7 +24,7 @@ func TokenValidation(next http.HandlerFunc) http.HandlerFunc {
 		// Извлечение токена
 		token, err := u.ExtractToken(r, "Validation")
 		if err != nil {
-			u.Respond(w, u.Message(false, "Invalid request"))
+			u.Respond(w, u.Message(false, err.Error()))
 			return
 		}
 
