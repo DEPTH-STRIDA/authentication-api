@@ -92,7 +92,8 @@ func (sm *SmtpManager) ValidateEmail(account models.Account) (string, error) {
 		return nil
 	})
 
-	// fmt.Printf("Отправка кода %s на почту %s\n", account.Email, key)
+	fmt.Printf("Отправка кода %s на почту %s\n", account.Email, key)
+	fmt.Println(account.Password)
 
 	// Добавляем в кеш данные
 	token := u.GenerateSecureToken(32)

@@ -128,7 +128,7 @@ func confirmEmail(reader *bufio.Reader) {
 		Key: code,
 	}
 
-	resp, err := sendRequestWithHeader("POST", "/api/user/new/validate", baseHttpRequest, "Authorization", currentSession.Token)
+	resp, err := sendRequestWithHeader("POST", "/api/user/new/validate", baseHttpRequest, "Validation", currentSession.Token)
 	if err != nil {
 		fmt.Println("Ошибка при подтверждении почты:", err)
 		return
@@ -220,7 +220,7 @@ func validatePasswordReset(reader *bufio.Reader, token string) {
 		Key: code,
 	}
 
-	resp, err := sendRequestWithHeader("POST", "/api/user/password/validate", baseHttpRequest, "Authorization", token)
+	resp, err := sendRequestWithHeader("POST", "/api/user/password/validate", baseHttpRequest, "Validation", token)
 	if err != nil {
 		fmt.Println("Ошибка при подтверждении кода:", err)
 		return
@@ -251,7 +251,7 @@ func setNewPassword(reader *bufio.Reader, token string) {
 		},
 	}
 
-	resp, err := sendRequestWithHeader("POST", "/api/user/password/set", baseHttpRequest, "Authorization", token)
+	resp, err := sendRequestWithHeader("POST", "/api/user/password/set", baseHttpRequest, "Validation", token)
 	if err != nil {
 		fmt.Println("Ошибка при установке нового пароля:", err)
 		return

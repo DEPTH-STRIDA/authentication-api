@@ -23,7 +23,7 @@ func NewUser(w http.ResponseWriter, r *http.Request) {
 		u.Respond(w, u.Message(false, "Invalid request"))
 		return
 	}
-
+	fmt.Println(baseHttpRequest)
 	// Проверка логина/пароля перед процессом создания
 	if err := baseHttpRequest.Account.Validate(); err != nil {
 		u.Respond(w, u.Message(false, err.Error()))
