@@ -340,11 +340,23 @@ func GetTokens(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	akiKeyDec, err := u.DcryptToken(apiKey, os.Getenv("wXRuiFOyCHQIB58DrBBIe2QHjbwkmSCivBP4puZqYZId"))
+	if err != nil {
+		u.Respond(w, u.Message(false, "Не удалось дешифровать токены"))
+		return
+	}
+
+	secretKeyDec, err := u.DcryptToken(secretKey, os.Getenv("wXRuiFOyCHQIB58DrBBIe2QHjbwkmSCivBP4puZqYZId"))
+	if err != nil {
+		u.Respond(w, u.Message(false, "Не удалось дешифровать токены"))
+		return
+	}
+
 	// Создание ответной структуры
 	resp := u.Message(true, "tokens have been successfully received")
 
 	// Добавление в ответную структуру пользователя с ключами
-	resp["account"] = models.Account{APIKey: apiKey, SecretKey: secretKey}
+	resp["account"] = models.Account{APIKey: akiKeyDec, SecretKey: secretKeyDec}
 
 	u.Respond(w, resp)
 }
