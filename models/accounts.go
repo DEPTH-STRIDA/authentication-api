@@ -270,7 +270,7 @@ func GetTokens(userID uint) (apiKey string, SecretKey string, err error) {
 		return "", "", fmt.Errorf("user not found")
 	}
 
-	return keys.BianceApiKey, keys.BianceApiKey, nil
+	return keys.BianceApiKey, keys.BianceSecretKey, nil
 }
 
 func SetTokens(userID uint, apiKey, secretKey string) error {
