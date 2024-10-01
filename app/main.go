@@ -2,16 +2,23 @@ package main
 
 import (
 	h "app/handler"
+	"app/logger"
 	"app/models"
 	"app/smtp"
 	"net/http"
 	"os"
 
 	"github.com/gorilla/mux"
-	"github.com/joho/godotenv"
 )
 
 func main() {
+	var err error
+
+	logger.Log, err = logger.NewLogger()
+	if err != nil {
+		panic(err)
+	}
+
 	router := mux.NewRouter()
 
 	// Новый аккаунт
@@ -34,21 +41,11 @@ func main() {
 	// Временное
 	router.HandleFunc("/api/internal/get-user-id", h.JwtAuthentication(h.GetUserId)).Methods("POST")
 
-	// Загрузка файла .env
-	err := godotenv.Load()
-	if err != nil {
-		panic(err)
-	}
-
 	smtp.MailManager, err = smtp.NewSmtpManager()
-	if err != nil {
-		panic(err)
-	}
+	handlerError(err)
 
 	models.DataBaseManager, err = models.NewDBManager()
-	if err != nil {
-		panic(err)
-	}
+	handlerError(err)
 
 	port := os.Getenv("port")
 	if port == "" {
@@ -61,7 +58,12 @@ func main() {
 	}
 
 	err = http.ListenAndServe(host+":"+port, router)
+	handlerError(err)
+}
+
+func handlerError(err error) {
 	if err != nil {
+		logger.Log.Error(err)
 		panic(err)
 	}
 }

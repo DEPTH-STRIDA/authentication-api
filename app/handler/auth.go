@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"app/logger"
 	"app/models"
 	u "app/utils"
 	"context"
@@ -25,6 +26,8 @@ func TokenValidation(next http.HandlerFunc) http.HandlerFunc {
 		token, err := u.ExtractToken(r, "Validation")
 		if err != nil {
 			u.Respond(w, u.Message(false, err.Error()))
+			w.WriteHeader(http.StatusUnauthorized)
+			logger.Log.Error("--", r.URL.Path, " -- ", r.RemoteAddr, " -- ошибка при извлечении токена: ", err.Error())
 			return
 		}
 
@@ -32,6 +35,7 @@ func TokenValidation(next http.HandlerFunc) http.HandlerFunc {
 		ctx := context.WithValue(r.Context(), TokenCtx, token)
 		r = r.WithContext(ctx)
 
+		logger.Log.Error("--", r.URL.Path, " -- ", r.RemoteAddr, " -- токен успешно проверен ")
 		// Вызываем следующий обработчик с обновленным запросом
 		next.ServeHTTP(w, r)
 	}
@@ -42,13 +46,15 @@ func JwtAuthentication(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token, err := u.ExtractToken(r, "Authorization")
 		if err != nil {
-			http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
+			http.Error(w, "Ошибка: "+err.Error(), http.StatusUnauthorized)
+			logger.Log.Error("--", r.URL.Path, " -- ", r.RemoteAddr, " -- ошибка при извлечении токена: ", err.Error())
 			return
 		}
 
 		claims, err := validateToken(token)
 		if err != nil {
 			http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
+			logger.Log.Error("--", r.URL.Path, " -- ", r.RemoteAddr, " -- ошибка при проверке токена: ", err.Error())
 			return
 		}
 
@@ -56,6 +62,7 @@ func JwtAuthentication(next http.HandlerFunc) http.HandlerFunc {
 		ctx := context.WithValue(r.Context(), UserIDCtx, claims.UserId)
 		r = r.WithContext(ctx)
 
+		logger.Log.Error("--", r.URL.Path, " -- ", r.RemoteAddr, " -- токен успешно проверен ")
 		// Вызываем следующий обработчик с обновленным запросом
 		next.ServeHTTP(w, r)
 	}

@@ -8,6 +8,7 @@ require (
 	github.com/jinzhu/gorm v1.9.1
 	github.com/joho/godotenv v1.3.0
 	golang.org/x/crypto v0.17.0
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gorm.io/driver/postgres v1.5.9
 	gorm.io/gorm v1.25.12
 )

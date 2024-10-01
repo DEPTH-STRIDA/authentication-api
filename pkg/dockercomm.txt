@@ -1,0 +1,4 @@
+docker build -f Dockerfile.dev -t authentication-api/authentication-api .
+
+docker build -t authentication-api .
+docker run -it authentication-api
