@@ -1,0 +1,21 @@
+#APP
+port=8000
+host=localhost
+host_docker = "0.0.0.0"
+logger=2 
+#DB
+db_host=localhost
+db_host_docker=host.docker.internal
+db_port=5432
+db_name=crypto_database
+db_user=crypto_user
+db_pass=228
+#Token/JWT
+token_password=any_password
+hash_password=any_password
+#SMTP
+smtp_mail=example@mail.ru
+smtp_password=12345678
+smtp_host=smtp.mail.ru
+smtp_port=465
+SMTP_PORT_WITHOUT_ENCRYPTION=587
